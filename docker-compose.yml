@@ -1,4 +1,4 @@
-version: "3.8"
+version: '3.8'
 
 services:
 
@@ -14,6 +14,7 @@ services:
     command: python3 mock/mock_generator.py
     depends_on:
       - redis
+    restart: "no"
 
   spark-consumer:
     build: .
@@ -21,3 +22,4 @@ services:
     command: spark-submit consumer/consumer_pubsub.py
     depends_on:
       - redis
+    restart: unless-stopped

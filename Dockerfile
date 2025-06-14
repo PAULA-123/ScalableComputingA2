@@ -8,5 +8,3 @@ RUN pip3 install -r /tmp/requirements.txt
 
 COPY . /app
 WORKDIR /app
-
-# O comando será definido no docker-compose
