@@ -1,50 +1,74 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
 from typing import List
+from pydantic import BaseModel
 import random
+from datetime import datetime, timedelta
 
-#fast api simula a api rest que usaremos
 
+# ===========================
+# CONFIGURAÇÃO DA API
+# ===========================
 app = FastAPI(
-    title="API de Regressão Linear",
-    description="Retorna os parâmetros da regressão linear e os dados simulados.",
+    title="API de Dados Simulados para Dashboard",
+    description="Retorna parâmetros da regressão e dados simulados para análises.",
     version="1.0.0"
 )
 
 
-# Liberar CORS para acesso externo (como o Streamlit)
+# ===========================
+# LIBERAR CORS
+# ===========================
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Permite qualquer origem (ou restrinja se desejar)
+    allow_origins=["*"],  # Permite qualquer origem
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 
-# Modelo de dado para documentação
-class DataPoint(BaseModel):
-    x: float
-    y: float
-
-
-# Endpoint principal
-@app.get("/regressao")
-def get_regressao():
-    # Parâmetros da regressão simulados (reta y = beta1 * x + beta0 + ruído)
+# ===========================
+# ENDPOINT DE DADOS
+# ===========================
+@app.get("/dados")
+def get_dados():
+    # Parâmetros da regressão simulados
     beta0 = 1.5
     beta1 = 2.3
 
-    # Gerar dados simulados
-    data = []
-    for i in range(50):
-        x = round(random.uniform(0, 20), 2)
-        noise = random.gauss(0, 2)  # ruído gaussiano
-        y = beta1 * x + beta0 + noise
-        data.append({"x": x, "y": round(y, 2)})
+    regioes = ["Norte", "Nordeste", "Sul", "Sudeste", "Centro-Oeste"]
 
-    # Resposta JSON
+    data = []
+    start_date = datetime(2022, 1, 1)
+
+    for i in range(200):  # 200 registros simulados
+        regiao = random.choice(regioes)
+        date = start_date + timedelta(days=random.randint(0, 365))
+        populacao = random.randint(50000, 300000)
+
+        vacinados = int(populacao * random.uniform(0.4, 0.9))
+        diagnosticados = random.randint(500, 8000)
+        internacoes = int(diagnosticados * random.uniform(0.05, 0.2))
+        escolaridade = round(random.uniform(3, 16), 1)  # média de anos de estudo
+
+        # Dados para regressão linear
+        x = round(random.uniform(0, 20), 2)
+        noise = random.gauss(0, 2)
+        y = beta1 * x + beta0 + noise
+
+        data.append({
+            "regiao": regiao,
+            "data": date.strftime("%Y-%m-%d"),
+            "populacao": populacao,
+            "vacinados": vacinados,
+            "diagnosticados": diagnosticados,
+            "internacoes": internacoes,
+            "escolaridade": escolaridade,
+            "x": x,
+            "y": round(y, 2)
+        })
+
     return {
         "beta0": beta0,
         "beta1": beta1,
