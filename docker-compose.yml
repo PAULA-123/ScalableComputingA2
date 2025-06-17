@@ -1,25 +1,15 @@
-version: '3.8'
-
+version: "3.8"
 services:
-
   redis:
     image: redis:latest
-    container_name: redis
     ports:
       - "6379:6379"
-
-  publisher:
-    build: .
-    container_name: publisher
-    command: python3 mock/mock_generator.py
+  mock-generator:
+    build:
+      context: ./mock_data
     depends_on:
       - redis
-    restart: "no"
-
-  spark-consumer:
-    build: .
-    container_name: spark-consumer
-    command: spark-submit consumer/consumer_pubsub.py
-    depends_on:
-      - redis
-    restart: unless-stopped
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    # command: ["python", "generator.py"]  # padrão já é esse, pode deixar de fora
