@@ -1,3 +1,5 @@
+version: "3.9"
+
 services:
   redis:
     image: redis:latest
@@ -13,11 +15,30 @@ services:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
 
-  spark-consumer:
+  tratador-limpeza:
     build:
-      context: ./consumer
+      context: ./tratador_limpeza
     depends_on:
       - redis
     environment:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
+
+  tratador-filtragem:
+    build:
+      context: ./tratador_filtragem
+    depends_on:
+      - redis
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+
+  tratador-metrica:
+    build:
+      context: ./tratador_metrica
+    depends_on:
+      - redis
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+
