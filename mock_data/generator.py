@@ -10,7 +10,7 @@ minLinhas = 50000
 maxLinhas = 75000
 
 # Configurações do Redis (ajustável por variáveis de ambiente para usar no Docker)
-REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
+REDIS_HOST = os.getenv("REDIS_HOST", "redis")
 REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
 REDIS_DB = int(os.getenv("REDIS_DB", 0))
 REDIS_OMS_CHANNEL = os.getenv("REDIS_OMS_CHANNEL", "oms")
