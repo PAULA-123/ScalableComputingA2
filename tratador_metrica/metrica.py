@@ -18,20 +18,20 @@ OUTPUT_FILE = "databases_mock/resultados_metrica.json"
 # tratador-metrica-1    | [METRICA] Iniciando tratador de métricas com Spark
 ###########################################################
 
-# import requests
+import requests
 
-# API_URL = "http://api:8000/metricas"  # Ajuste conforme a URL da API
+API_URL = "http://api:8000/metricas"  # Ajuste conforme a URL da API
 
-# def enviar_resultado_api(resultados):
-#     try:
-#         # Convertendo dict para lista de modelos compatíveis
-#         response = requests.post(API_URL, json=resultados)
-#         if response.status_code == 200:
-#             print("[METRICA] Resultados enviados para API com sucesso")
-#         else:
-#             print(f"[METRICA] Falha ao enviar resultados: {response.status_code} - {response.text}")
-#     except Exception as e:
-#         print(f"[METRICA] Erro ao enviar resultados para API: {e}")
+def enviar_resultado_api(resultados):
+    try:
+        # Convertendo dict para lista de modelos compatíveis
+        response = requests.post(API_URL, json=resultados)
+        if response.status_code == 200:
+            print("[METRICA] Resultados enviados para API com sucesso")
+        else:
+            print(f"[METRICA] Falha ao enviar resultados: {response.status_code} - {response.text}")
+    except Exception as e:
+        print(f"[METRICA] Erro ao enviar resultados para API: {e}")
 
 # Schema para os dados de entrada
 schema = StructType([
@@ -121,7 +121,7 @@ def main():
                         salvar_resultado(resultados)
                         # COM OS COMENTÁRIOS FUNCIONA MAS SEM NÃO
                         #################################
-                        # enviar_resultado_api(resultados)
+                        enviar_resultado_api(resultados)
                         #################################
 
                 consumer.commit(asynchronous=False)

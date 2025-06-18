@@ -5,10 +5,14 @@ from typing import List
 
 app = FastAPI()
 
-# Permitir acesso CORS para seu dashboard Streamlit (ajuste origem conforme necessário)
+@app.get("/")
+async def root():
+    return {"message": "API is working"}
+
+# Permitir acesso CORS para seu dashboard Streamlit
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # ou coloque o domínio do seu Streamlit
+    allow_origins=["*"],  # ou especifique o domínio do Streamlit
     allow_methods=["*"],
     allow_headers=["*"],
 )
