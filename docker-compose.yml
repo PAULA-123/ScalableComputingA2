@@ -90,6 +90,24 @@ services:
     volumes:
       - ./databases_mock:/app/databases_mock 
 
+  api:
+    build:
+      context: ./api
+    ports:
+      - "8000:8000"
+    depends_on:
+      - tratador-metrica
+    command: ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
+
+  dashboard:
+    build:
+      context: ./dashboard
+    ports:
+      - "8501:8501"
+    depends_on:
+      - api
+    command: ["streamlit", "run", "dashboard.py", "--server.port=8501", "--server.address=0.0.0.0"]
+
 volumes:
   zookeeper_data:
   kafka_data:
