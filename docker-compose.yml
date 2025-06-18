@@ -1,6 +1,14 @@
 version: "3.9"
 
 services:
+  spark-metrica:
+    build: ./metrica_teste
+    volumes:
+      - ./artifacts:/app/artifacts
+
+
+
+
   redis:
     image: redis:latest
     ports:
@@ -41,4 +49,3 @@ services:
     environment:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
-

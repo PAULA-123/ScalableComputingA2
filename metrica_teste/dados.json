@@ -1,0 +1,7 @@
+[
+  {"CEP": "12000", "Diagnostico": 1},
+  {"CEP": "15000", "Diagnostico": 0},
+  {"CEP": "18000", "Diagnostico": 1},
+  {"CEP": "20000", "Diagnostico": 1},
+  {"CEP": "25000", "Diagnostico": 0}
+]
