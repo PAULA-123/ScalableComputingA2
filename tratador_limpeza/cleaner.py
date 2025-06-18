@@ -7,23 +7,26 @@ GROUP_ID = "tratador_limpeza_group"
 SOURCE_TOPIC = "raw_secretary"
 DEST_TOPIC = "clean_secretary"
 
-def limpeza(dado):
-    """Função de limpeza com logs detalhados"""
-    print(f"\n--- INICIANDO LIMPEZA PARA REGISTRO ---")
-    print(f"Dado recebido: {dado}")
-    
-    # Validação do campo Diagnostico
-    if dado.get("Diagnostico") not in [0, 1]:
-        print(f"🚫 Registro descartado - Diagnóstico inválido: {dado.get('Diagnostico')}")
-        return None
-    
-    # Validação do campo Populacao
-    if not isinstance(dado.get("Populacao"), int) or dado.get("Populacao", 0) <= 0:
-        print(f"🚫 Registro descartado - População inválida: {dado.get('Populacao')}")
-        return None
-    
-    print("✅ Registro validado com sucesso")
-    return dado
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import col
+from pyspark.sql.types import StructType, StructField, IntegerType
+
+# Supondo que já tenha a sessão spark criada globalmente
+spark = SparkSession.builder.appName("tratador_limpeza").getOrCreate()
+spark.sparkContext.setLogLevel("ERROR")
+
+schema = StructType([
+    StructField("Diagnostico", IntegerType(), True),
+    StructField("Populacao", IntegerType(), True)
+])
+
+def limpeza(df):
+    df_limpo = df.filter(
+        (col("Diagnostico").isin(0, 1)) &
+        (col("Populacao").isNotNull()) &
+        (col("Populacao") > 0)
+    )
+    return df_limpo
 
 def main():
     print("\n" + "="*50)
@@ -51,7 +54,8 @@ def main():
         if err is not None:
             print(f"❌ Falha ao enviar mensagem: {err}")
         else:
-            print(f"📤 Mensagem enviada com sucesso para {msg.topic()} [partição {msg.partition()}]")
+            pass
+            # print(f"📤 Mensagem enviada com sucesso para {msg.topic()} [partição {msg.partition()}]")
 
     consumer.subscribe([SOURCE_TOPIC])
     print(f"🔍 Inscrito no tópico {SOURCE_TOPIC}. Aguardando mensagens...")
@@ -68,38 +72,58 @@ def main():
                 
             if msg.error():
                 if msg.error().code() == KafkaError._PARTITION_EOF:
-                    print("ℹ️ Fim da partição alcançado")
+                    # print("ℹ️ Fim da partição alcançado")
                     continue
                 else:
-                    print(f"❌ Erro no consumidor Kafka: {msg.error()}")
+                    # print(f"❌ Erro no consumidor Kafka: {msg.error()}")
                     continue
 
             msg_count += 1
-            print(f"\n📥 Mensagem #{msg_count} recebida [tópico: {msg.topic()}, partição: {msg.partition()}, offset: {msg.offset()}]")
+            # print(f"\n📥 Mensagem #{msg_count} recebida [tópico: {msg.topic()}, partição: {msg.partition()}, offset: {msg.offset()}]")
             
             try:
                 # Processamento da mensagem
                 dado = json.loads(msg.value().decode('utf-8'))
-                print(f"📝 Conteúdo bruto: {dado}")
+                # print(f"📝 Conteúdo bruto: {dado}")
                 
                 # Limpeza dos dados
-                dado_limpo = limpeza(dado)
-                
-                if dado_limpo:
-                    # Envio para o tópico de saída
+                # Cria um DataFrame Spark com o dado (uma única linha)
+                df = spark.createDataFrame([dado], schema=schema)
+
+                # Aplica o filtro
+                df_limpo = limpeza(df)
+
+                # Coleta resultado em lista de dicts
+                resultado = df_limpo.collect()
+
+                if resultado:
+                    # Se passou no filtro, pega a linha convertendo para dict
+                    dado_limpo = resultado[0].asDict()
+                    # Envia para Kafka
                     producer.produce(
                         DEST_TOPIC,
                         json.dumps(dado_limpo).encode('utf-8'),
                         callback=delivery_report
                     )
                     producer.flush()
-                    print(f"🔄 Dado limpo: {dado_limpo}")
                 else:
                     print("🗑️ Registro descartado durante a limpeza")
+                                
+                # if dado_limpo:
+                #     # Envio para o tópico de saída
+                #     producer.produce(
+                #         DEST_TOPIC,
+                #         json.dumps(dado_limpo).encode('utf-8'),
+                #         callback=delivery_report
+                #     )
+                #     producer.flush()
+                #     # print(f"🔄 Dado limpo: {dado_limpo}")
+                # else:
+                #     print("🗑️ Registro descartado durante a limpeza")
                     
                 # Commit do offset
                 consumer.commit(asynchronous=False)
-                print(f"✔️ Offset {msg.offset()} confirmado")
+                # print(f"✔️ Offset {msg.offset()} confirmado")
                 
             except json.JSONDecodeError as e:
                 print(f"❌ Erro ao decodificar JSON: {e}")

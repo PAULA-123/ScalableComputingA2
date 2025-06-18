@@ -69,6 +69,26 @@ services:
         condition: service_healthy
       kafka:
         condition: service_healthy
+    volumes:
+      - ./artifacts:/app/artifacts
+
+  tratador-filtragem:
+    build:
+      context: ./tratador_filtragem
+    depends_on:
+      - kafka
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+
+  tratador-metrica:
+    build:
+      context: ./tratador_metrica
+    depends_on:
+      - kafka
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+    volumes:
+      - ./databases_mock:/app/databases_mock 
 
 volumes:
   zookeeper_data:

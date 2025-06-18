@@ -1,12 +1,21 @@
 import json
+import os
+import time
 from statistics import mean
 from confluent_kafka import Consumer, KafkaError
-import os
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import col, avg
+from pyspark.sql.types import StructType, StructField, IntegerType
 
 KAFKA_BOOTSTRAP_SERVERS = "kafka:9092"
 GROUP_ID = "tratador_metricas_group"
 SOURCE_TOPIC = "filtered_secretary"
 OUTPUT_FILE = "databases_mock/resultados_metrica.json"
+
+# Schema para os dados de entrada
+schema = StructType([
+    StructField("Diagnostico", IntegerType(), True)
+])
 
 def salvar_resultado(resultados):
     try:
@@ -17,17 +26,20 @@ def salvar_resultado(resultados):
         print(f"[ERRO] Falha ao salvar arquivo JSON: {e}")
 
 def main():
+    print("[METRICA] Iniciando tratador de métricas com Spark")
+    spark = SparkSession.builder.appName("tratador_metricas").getOrCreate()
+    spark.sparkContext.setLogLevel("ERROR")
+
     consumer = Consumer({
         "bootstrap.servers": KAFKA_BOOTSTRAP_SERVERS,
         "group.id": GROUP_ID,
-        "auto.offset.reset": "earliest"
+        "auto.offset.reset": "earliest",
+        "enable.auto.commit": False
     })
 
     consumer.subscribe([SOURCE_TOPIC])
-    valores = []
     resultados = []
-
-    print(f"[METRICA] Escutando tópico: {SOURCE_TOPIC}")
+    acumulado = []
 
     try:
         while True:
@@ -40,27 +52,45 @@ def main():
                 else:
                     print(f"[METRICA] Erro no Kafka: {msg.error()}")
                     continue
-            try:
-                dado = json.loads(msg.value().decode('utf-8'))
-                if "Diagnostico" in dado:
-                    valores.append(dado["Diagnostico"])
 
-                    if len(valores) % 10 == 0:
-                        media = mean(valores)
+            try:
+                dado = json.loads(msg.value().decode("utf-8"))
+                if "Diagnostico" in dado and dado["Diagnostico"] is not None:
+                    try:
+                        dado["Diagnostico"] = int(dado["Diagnostico"])
+                    except Exception as e:
+                        print(f"[METRICA] Ignorando dado com Diagnostico inválido: {dado['Diagnostico']} ({e})")
+                        continue
+
+                    acumulado.append(dado)
+
+                    if len(acumulado) % 5 == 0:
+                        df = spark.createDataFrame(acumulado, schema=schema)
+                        media_row = df.select(avg(col("Diagnostico")).alias("media")).collect()[0]
+                        media = media_row["media"]
+
                         resultado = {
-                            "quantidade": len(valores),
+                            "quantidade": len(acumulado),
                             "media_diagnostico": round(media, 4)
                         }
                         resultados.append(resultado)
-                        print(f"[METRICA] Resultado #{len(resultados)}:", resultado)
+
+                        print(f"[METRICA] Resultado #{len(resultados)}: {resultado}")
 
                         salvar_resultado(resultados)
+
+                consumer.commit(asynchronous=False)
+
             except Exception as e:
                 print(f"[METRICA] Erro ao processar mensagem: {e}")
+
     except KeyboardInterrupt:
-        print("Interrompido pelo usuário")
+        print("\n[METRICA] Interrompido pelo usuário")
     finally:
         consumer.close()
+        spark.stop()
+        print("[METRICA] Tratador finalizado")
+
 
 if __name__ == "__main__":
     main()
