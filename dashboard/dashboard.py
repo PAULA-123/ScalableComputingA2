@@ -4,6 +4,8 @@ import numpy as np
 import requests
 import matplotlib.pyplot as plt
 
+## uvicorn api_regressao:app --reload --host 0.0.0.0 --port 8000
+## streamlit run dashboard/dashboard.py
 
 # ========================
 # CONFIGURAÇÃO DO DASHBOARD
