@@ -2,27 +2,22 @@ import random
 from datetime import datetime, timedelta
 import os
 import json
-import redis
 import time
+from confluent_kafka import Producer
 
 # ==================== Configurações ====================
 
-minLinhas = int(os.getenv("MIN_LINHAS", 5000))
-maxLinhas = int(os.getenv("MAX_LINHAS", 7500))
+minLinhas = int(os.getenv("MIN_LINHAS", 50))
+maxLinhas = int(os.getenv("MAX_LINHAS", 75))
+INTERVALO_CICLO = float(os.getenv("INTERVALO_CICLO", 1.0))
 
-# Quantos segundos esperar entre ciclos
-INTERVALO_CICLO = float(os.getenv("INTERVALO_CICLO", 2.0))
+KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092")
 
-# Configurações do Redis (ajustável por variáveis de ambiente)
-REDIS_HOST = os.getenv("REDIS_HOST", "redis")
-REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
-REDIS_DB = int(os.getenv("REDIS_DB", "0"))
-REDIS_OMS_CHANNEL = os.getenv("REDIS_OMS_CHANNEL", "oms")
-REDIS_HOSPITAL_CHANNEL = os.getenv("REDIS_HOSPITAL_CHANNEL", "hospital")
-REDIS_SECRETARY_CHANNEL = os.getenv("REDIS_SECRETARY_CHANNEL", "raw_secretary")
+TOPIC_OMS = os.getenv("TOPIC_OMS", "raw_oms")
+TOPIC_HOSPITAL = os.getenv("TOPIC_HOSPITAL", "raw_hospital")
+TOPIC_SECRETARY = os.getenv("TOPIC_SECRETARY", "raw_secretary")
 
-# Instância Redis
-r = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=REDIS_DB)
+producer = Producer({"bootstrap.servers": KAFKA_BOOTSTRAP_SERVERS})
 
 # ==================== CEPs ====================
 
@@ -38,6 +33,12 @@ def gerar_data_aleatoria_na_semana():
     segunda = hoje - timedelta(days=hoje.weekday())
     dia = random.randint(0, 6)
     return (segunda + timedelta(days=dia)).strftime("%d-%m-%Y")
+
+# ==================== Função para enviar mensagens para Kafka
+
+def kafka_send(topic, data):
+    producer.produce(topic, json.dumps(data).encode('utf-8'))
+    producer.flush()
 
 # ==================== OMS ====================
 
@@ -55,12 +56,11 @@ def oms_generate_mock(rows=None, output_file="databases_mock/oms_mock.json"):
             "Data": gerar_data_aleatoria_na_semana()
         }
         dados.append(registro)
-        r.publish(REDIS_OMS_CHANNEL, json.dumps(registro))
-    # salvar localmente (sobrescreve a cada ciclo)
+        kafka_send(TOPIC_OMS, registro)
     os.makedirs(os.path.dirname(output_file), exist_ok=True)
     with open(output_file, "w", encoding="utf-8") as f:
         json.dump(dados, f, indent=4, ensure_ascii=False)
-    print(f"[OMS] {rows} registros publicados em '{REDIS_OMS_CHANNEL}'")
+    print(f"[OMS] {rows} registros enviados para tópico '{TOPIC_OMS}'")
 
 # ==================== HOSPITAL ====================
 
@@ -81,11 +81,11 @@ def hospital_generate_mock(rows=None, output_file="databases_mock/hospital_mock.
             "Sintoma4": random.randint(0, 1),
         }
         dados.append(registro)
-        r.publish(REDIS_HOSPITAL_CHANNEL, json.dumps(registro))
+        kafka_send(TOPIC_HOSPITAL, registro)
     os.makedirs(os.path.dirname(output_file), exist_ok=True)
     with open(output_file, "w", encoding="utf-8") as f:
         json.dump(dados, f, indent=4, ensure_ascii=False)
-    print(f"[HOSPITAL] {rows} registros publicados em '{REDIS_HOSPITAL_CHANNEL}'")
+    print(f"[HOSPITAL] {rows} registros enviados para tópico '{TOPIC_HOSPITAL}'")
 
 # ==================== SECRETARIA ====================
 
@@ -102,11 +102,11 @@ def secretary_generate_mock(rows=None, output_file="databases_mock/secretary_moc
             "Data": gerar_data_aleatoria_na_semana()
         }
         dados.append(registro)
-        r.publish(REDIS_SECRETARY_CHANNEL, json.dumps(registro))
+        kafka_send(TOPIC_SECRETARY, registro)
     os.makedirs(os.path.dirname(output_file), exist_ok=True)
     with open(output_file, "w", encoding="utf-8") as f:
         json.dump(dados, f, indent=4, ensure_ascii=False)
-    print(f"[SECRETARIA] {rows} registros publicados em '{REDIS_SECRETARY_CHANNEL}'")
+    print(f"[SECRETARIA] {rows} registros enviados para tópico '{TOPIC_SECRETARY}'")
 
 # ==================== LOOP PRINCIPAL ====================
 
@@ -116,11 +116,9 @@ if __name__ == "__main__":
     ciclo = 0
     while True:
         ciclo += 1
-        print(f"=== CICLO {ciclo} INICIADO ===")
+        print(f"=== CICLO {ciclo} INICIADO ===", flush=True)
         oms_generate_mock()
         secretary_generate_mock()
-        # para hospitais, geramos múltiplos arquivos conforme antes:
-        gerar_multiplos_arquivos_hospital = lambda: hospital_generate_mock()
         hospital_generate_mock()
-        print(f"=== CICLO {ciclo} COMPLETO, dormindo {INTERVALO_CICLO}s ===\n")
+        print(f"=== CICLO {ciclo} COMPLETO, dormindo {INTERVALO_CICLO}s ===\n", flush=True)
         time.sleep(INTERVALO_CICLO)

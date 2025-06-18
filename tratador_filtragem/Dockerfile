@@ -1,9 +1,12 @@
-FROM python:3.11-slim
+FROM python:3.10-slim
 
 WORKDIR /app
 
+COPY requirements.txt requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
+
 COPY filtrador.py .
 
-RUN pip install redis
+ENV PYTHONUNBUFFERED=1
 
 CMD ["python", "filtrador.py"]
