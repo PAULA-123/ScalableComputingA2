@@ -1,144 +1,118 @@
 import json
 import time
 from confluent_kafka import Consumer, Producer, KafkaError
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import col
+from pyspark.sql.types import StructType, StructField, IntegerType, StringType
 
 KAFKA_BOOTSTRAP_SERVERS = "kafka:9092"
 GROUP_ID = "tratador_limpeza_group"
 SOURCE_TOPIC = "raw_secretary"
 DEST_TOPIC = "clean_secretary"
 
-from pyspark.sql import SparkSession
-from pyspark.sql.functions import col
-from pyspark.sql.types import StructType, StructField, IntegerType
-
-# Supondo que já tenha a sessão spark criada globalmente
-spark = SparkSession.builder.appName("tratador_limpeza").getOrCreate()
-spark.sparkContext.setLogLevel("ERROR")
-
+# Schema mais completo para validação
 schema = StructType([
     StructField("Diagnostico", IntegerType(), True),
-    StructField("Populacao", IntegerType(), True)
+    StructField("Vacinado", IntegerType(), True),
+    StructField("CEP", IntegerType(), True),
+    StructField("Escolaridade", IntegerType(), True),
+    StructField("Populacao", IntegerType(), True),
+    StructField("Data", StringType(), True)
 ])
 
 def limpeza(df):
+    """Aplica regras de limpeza mais robustas"""
     df_limpo = df.filter(
-        (col("Diagnostico").isin(0, 1)) &
-        (col("Populacao").isNotNull()) &
-        (col("Populacao") > 0)
-    )
+        (col("Diagnostico").isin(0, 1)) &  # Apenas 0 ou 1
+        (col("Vacinado").isin(0, 1)) &
+        (col("CEP").isNotNull()) &
+        (col("CEP") >= 11001) &  # CEP mínimo válido
+        (col("CEP") <= 30999) &  # CEP máximo válido
+        (col("Escolaridade").between(0, 5)) &  # Valores válidos
+        (col("Populacao") > 0) &
+        (col("Data").isNotNull()))
     return df_limpo
 
-def main():
-    print("\n" + "="*50)
-    print(" INICIANDO TRATADOR DE LIMPEZA DE DADOS ")
-    print("="*50)
-    print(f"Conectando ao Kafka em: {KAFKA_BOOTSTRAP_SERVERS}")
-    print(f"Tópico de origem: {SOURCE_TOPIC}")
-    print(f"Tópico de destino: {DEST_TOPIC}")
-    print(f"Grupo de consumidores: {GROUP_ID}")
-    print("="*50 + "\n")
+def process_message(msg, spark, producer):
+    """Processa uma mensagem individual com tratamento de erros"""
+    try:
+        dado = json.loads(msg.value().decode('utf-8'))
+        
+        # Validação básica antes de criar DataFrame
+        if not all(key in dado for key in ["Diagnostico", "Populacao"]):
+            print("🗑️ Registro incompleto descartado")
+            return None
+            
+        df = spark.createDataFrame([dado], schema=schema)
+        df_limpo = limpeza(df)
+        
+        if df_limpo.count() > 0:
+            dado_limpo = df_limpo.first().asDict()
+            producer.produce(
+                DEST_TOPIC,
+                json.dumps(dado_limpo).encode('utf-8')
+            )
+            return True
+        return False
+        
+    except json.JSONDecodeError as e:
+        print(f"❌ Erro ao decodificar JSON: {e}")
+    except Exception as e:
+        print(f"❌ Erro inesperado: {e}")
+    return None
 
-    # Configuração do consumidor
-    consumer_config = {
+def main():
+    spark = SparkSession.builder.appName("tratador_limpeza").getOrCreate()
+    spark.sparkContext.setLogLevel("ERROR")
+
+    consumer = Consumer({
         "bootstrap.servers": KAFKA_BOOTSTRAP_SERVERS,
         "group.id": GROUP_ID,
         "auto.offset.reset": "earliest",
         "enable.auto.commit": False
-    }
-
-    consumer = Consumer(consumer_config)
+    })
+    
     producer = Producer({"bootstrap.servers": KAFKA_BOOTSTRAP_SERVERS})
-
-    def delivery_report(err, msg):
-        """Callback para confirmação de entrega"""
-        if err is not None:
-            print(f"❌ Falha ao enviar mensagem: {err}")
-        else:
-            pass
-            # print(f"📤 Mensagem enviada com sucesso para {msg.topic()} [partição {msg.partition()}]")
 
     consumer.subscribe([SOURCE_TOPIC])
     print(f"🔍 Inscrito no tópico {SOURCE_TOPIC}. Aguardando mensagens...")
 
     try:
-        msg_count = 0
+        msg_count = processed_count = 0
         start_time = time.time()
+        batch_size = 100
+        batch_count = 0
         
         while True:
             msg = consumer.poll(timeout=1.0)
-            
             if msg is None:
                 continue
                 
             if msg.error():
-                if msg.error().code() == KafkaError._PARTITION_EOF:
-                    # print("ℹ️ Fim da partição alcançado")
-                    continue
-                else:
-                    # print(f"❌ Erro no consumidor Kafka: {msg.error()}")
-                    continue
+                if msg.error().code() != KafkaError._PARTITION_EOF:
+                    print(f"❌ Erro no consumidor Kafka: {msg.error()}")
+                continue
 
             msg_count += 1
-            # print(f"\n📥 Mensagem #{msg_count} recebida [tópico: {msg.topic()}, partição: {msg.partition()}, offset: {msg.offset()}]")
+            result = process_message(msg, spark, producer)
             
-            try:
-                # Processamento da mensagem
-                dado = json.loads(msg.value().decode('utf-8'))
-                # print(f"📝 Conteúdo bruto: {dado}")
+            if result is not None:
+                if result:
+                    processed_count += 1
+                batch_count += 1
                 
-                # Limpeza dos dados
-                # Cria um DataFrame Spark com o dado (uma única linha)
-                df = spark.createDataFrame([dado], schema=schema)
-
-                # Aplica o filtro
-                df_limpo = limpeza(df)
-
-                # Coleta resultado em lista de dicts
-                resultado = df_limpo.collect()
-
-                if resultado:
-                    # Se passou no filtro, pega a linha convertendo para dict
-                    dado_limpo = resultado[0].asDict()
-                    # Envia para Kafka
-                    producer.produce(
-                        DEST_TOPIC,
-                        json.dumps(dado_limpo).encode('utf-8'),
-                        callback=delivery_report
-                    )
+                if batch_count >= batch_size:
                     producer.flush()
-                else:
-                    print("🗑️ Registro descartado durante a limpeza")
-                                
-                # if dado_limpo:
-                #     # Envio para o tópico de saída
-                #     producer.produce(
-                #         DEST_TOPIC,
-                #         json.dumps(dado_limpo).encode('utf-8'),
-                #         callback=delivery_report
-                #     )
-                #     producer.flush()
-                #     # print(f"🔄 Dado limpo: {dado_limpo}")
-                # else:
-                #     print("🗑️ Registro descartado durante a limpeza")
-                    
-                # Commit do offset
-                consumer.commit(asynchronous=False)
-                # print(f"✔️ Offset {msg.offset()} confirmado")
-                
-            except json.JSONDecodeError as e:
-                print(f"❌ Erro ao decodificar JSON: {e}")
-            except Exception as e:
-                print(f"❌ Erro inesperado: {e}")
+                    consumer.commit(asynchronous=False)
+                    batch_count = 0
 
     except KeyboardInterrupt:
-        print("\n" + "="*50)
-        print(" INTERRUPÇÃO SOLICITADA - ENCERRANDO CONSUMER ")
-        print(f"Total de mensagens processadas: {msg_count}")
-        print(f"Tempo de execução: {time.time() - start_time:.2f} segundos")
-        print("="*50)
+        print(f"\n📊 Estatísticas: {processed_count}/{msg_count} mensagens processadas")
+        print(f"⏱️  Tempo total: {time.time() - start_time:.2f} segundos")
     finally:
+        producer.flush()
         consumer.close()
-        print("✅ Conexão com Kafka encerrada corretamente")
+        spark.stop()
 
 if __name__ == "__main__":
     main()

@@ -4,27 +4,27 @@ import time
 from statistics import mean
 from confluent_kafka import Consumer, KafkaError
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import col, avg
-from pyspark.sql.types import StructType, StructField, IntegerType
-# import requests
+from pyspark.sql.functions import col, avg, mean as spark_mean
+from pyspark.sql.types import StructType, StructField, IntegerType, FloatType
+import requests
 
 KAFKA_BOOTSTRAP_SERVERS = "kafka:9092"
 GROUP_ID = "tratador_metricas_group"
 SOURCE_TOPIC = "filtered_secretary"
 OUTPUT_FILE = "databases_mock/resultados_metrica.json"
 
-###########################################################
-# O ERRO É QUE A API NÃO FICA ONLINE [METRICA] Aviso: não conseguiu conectar na API.
-# tratador-metrica-1    | [METRICA] Iniciando tratador de métricas com Spark
-###########################################################
+API_URL = "http://api:8000/metricas"
 
-import requests
-
-API_URL = "http://api:8000/metricas"  # Ajuste conforme a URL da API
+# Schema para os dados de entrada - agora com mais campos relevantes
+schema = StructType([
+    StructField("Vacinado", IntegerType(), True),
+    StructField("Escolaridade", IntegerType(), True),
+    StructField("Populacao", IntegerType(), True),
+    StructField("Diagnostico", IntegerType(), True)  # Mantido para taxa de diagnóstico
+])
 
 def enviar_resultado_api(resultados):
     try:
-        # Convertendo dict para lista de modelos compatíveis
         response = requests.post(API_URL, json=resultados)
         if response.status_code == 200:
             print("[METRICA] Resultados enviados para API com sucesso")
@@ -32,11 +32,6 @@ def enviar_resultado_api(resultados):
             print(f"[METRICA] Falha ao enviar resultados: {response.status_code} - {response.text}")
     except Exception as e:
         print(f"[METRICA] Erro ao enviar resultados para API: {e}")
-
-# Schema para os dados de entrada
-schema = StructType([
-    StructField("Diagnostico", IntegerType(), True)
-])
 
 def salvar_resultado(resultados):
     try:
@@ -47,23 +42,6 @@ def salvar_resultado(resultados):
         print(f"[ERRO] Falha ao salvar arquivo JSON: {e}")
 
 def main():
-
-    ### API NUNCA FICA ONLINE
-    # def esperar_api_online(url, tentativas=10, intervalo=2):
-    #     for _ in range(tentativas):
-    #         try:
-    #             r = requests.get(url)
-    #             if r.status_code == 200:
-    #                 print("[METRICA] API está online.")
-    #                 return
-    #         except Exception:
-    #             pass
-    #         print("[METRICA] Aguardando API ficar online...")
-    #         time.sleep(intervalo)
-    #     print("[METRICA] Aviso: não conseguiu conectar na API.")
-
-    # # dentro do main, antes de criar SparkSession:
-    # esperar_api_online("http://api:8000/metricas")
     print("[METRICA] Iniciando tratador de métricas com Spark")
     spark = SparkSession.builder.appName("tratador_metricas").getOrCreate()
     spark.sparkContext.setLogLevel("ERROR")
@@ -94,35 +72,43 @@ def main():
             try:
                 dado = json.loads(msg.value().decode("utf-8"))
                 
-                print(f"[METRICA] Dado recebido do Kafka: {dado}", flush=True)  # <-- NOVO PRINT
+                print(f"[METRICA] Dado recebido do Kafka: {dado}", flush=True)
                 
-                if "Diagnostico" in dado and dado["Diagnostico"] is not None:
-                    try:
-                        dado["Diagnostico"] = int(dado["Diagnostico"])
-                    except Exception as e:
-                        print(f"[METRICA] Ignorando dado com Diagnostico inválido: {dado['Diagnostico']} ({e})")
-                        continue
+                # Filtra campos relevantes e converte tipos
+                processed_data = {
+                    "Vacinado": int(dado.get("Vacinado", 0)),
+                    "Escolaridade": int(dado.get("Escolaridade", 0)),
+                    "Populacao": int(dado.get("Populacao", 0)),
+                    "Diagnostico": int(dado.get("Diagnostico", 0))
+                }
+                
+                acumulado.append(processed_data)
 
-                    acumulado.append(dado)
+                # Processa a cada 10 registros (ajustável conforme necessidade)
+                if len(acumulado) % 10 == 0:
+                    df = spark.createDataFrame(acumulado, schema=schema)
+                    
+                    # Calcula várias métricas relevantes
+                    metrics = df.agg(
+                        spark_mean(col("Vacinado")).alias("taxa_vacinacao"),
+                        spark_mean(col("Escolaridade")).alias("media_escolaridade"),
+                        spark_mean(col("Diagnostico")).alias("taxa_diagnostico"),
+                        avg(col("Populacao")).alias("media_populacao")
+                    ).collect()[0]
+                    
+                    resultado = {
+                        "quantidade": len(acumulado),
+                        "taxa_vacinacao": round(metrics["taxa_vacinacao"], 4),
+                        "media_escolaridade": round(metrics["media_escolaridade"], 2),
+                        "taxa_diagnostico": round(metrics["taxa_diagnostico"], 4),
+                        "media_populacao": round(metrics["media_populacao"], 2)
+                    }
+                    
+                    resultados.append(resultado)
+                    print(f"[METRICA] Resultado #{len(resultados)}: {resultado}")
 
-                    if len(acumulado) % 5 == 0:
-                        df = spark.createDataFrame(acumulado, schema=schema)
-                        media_row = df.select(avg(col("Diagnostico")).alias("media")).collect()[0]
-                        media = media_row["media"]
-
-                        resultado = {
-                            "quantidade": len(acumulado),
-                            "media_diagnostico": round(media, 4)
-                        }
-                        resultados.append(resultado)
-
-                        print(f"[METRICA] Resultado #{len(resultados)}: {resultado}")
-
-                        salvar_resultado(resultados)
-                        # COM OS COMENTÁRIOS FUNCIONA MAS SEM NÃO
-                        #################################
-                        enviar_resultado_api(resultados)
-                        #################################
+                    salvar_resultado(resultados)
+                    enviar_resultado_api(resultados)
 
                 consumer.commit(asynchronous=False)
 
@@ -135,7 +121,6 @@ def main():
         consumer.close()
         spark.stop()
         print("[METRICA] Tratador finalizado")
-
 
 if __name__ == "__main__":
     main()

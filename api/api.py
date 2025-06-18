@@ -9,20 +9,23 @@ app = FastAPI()
 async def root():
     return {"message": "API is working"}
 
-# Permitir acesso CORS para seu dashboard Streamlit
+# Permitir acesso CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # ou especifique o domínio do Streamlit
+    allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Modelo para os dados da métrica
+# Modelo atualizado para os dados da métrica
 class Resultado(BaseModel):
     quantidade: int
-    media_diagnostico: float
+    taxa_vacinacao: float
+    media_escolaridade: float
+    taxa_diagnostico: float  # mantendo compatibilidade com nome antigo
+    media_populacao: float
 
-# Armazena os resultados em memória (pode substituir por base real)
+# Armazena os resultados em memória
 dados_metricas: List[Resultado] = []
 
 @app.get("/metricas", response_model=List[Resultado])
