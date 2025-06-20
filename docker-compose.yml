@@ -58,9 +58,9 @@ services:
       kafka:
         condition: service_healthy
 
-  tratador-limpeza:
+  tratador1_limpeza:
     build:
-      context: ./tratador_limpeza
+      context: ./tratador1_limpeza
     environment:
       - REDIS_HOST=redis
       - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
@@ -72,23 +72,63 @@ services:
     volumes:
       - ./artifacts:/app/artifacts
 
-  tratador-filtragem:
+  tratador2_filtragem:
     build:
-      context: ./tratador_filtragem
+      context: ./tratador2_filtragem
     depends_on:
       - kafka
     environment:
       - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
 
-  tratador-metrica:
+  tratador8_regressao:
     build:
-      context: ./tratador_metrica
+      context: ./tratador8_regressao
     depends_on:
       - kafka
     environment:
       - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
     volumes:
       - ./databases_mock:/app/databases_mock 
+
+  tratador4_agrupar_colunas:
+    build:
+      context: ./tratador4_agrupar_colunas
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+
+
+  tratador_6_correlacao:
+    build:
+      context: ./tratador_6_correlacao
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+
+  tratador_7_desviopadrao:
+    build:
+      context: ./tratador_7_desviopadrao
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+
+
+  tratador_9_mediamovel:
+    build:
+      context: ./tratador_9_mediamovel
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+
+
 
   api:
     build:
