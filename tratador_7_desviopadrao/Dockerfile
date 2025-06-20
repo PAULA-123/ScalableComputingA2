@@ -20,6 +20,6 @@ USER 1001
 COPY --chown=1001:1001 requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY --chown=1001:1001 desvio.py .
+COPY --chown=1001:1001 desviopadrao.py .
 
-CMD ["spark-submit", "--master", "local[*]", "/app/desvio.py"]
+CMD ["spark-submit", "--master", "local[*]", "/app/desviopadrao.py"]

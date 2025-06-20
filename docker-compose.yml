@@ -90,9 +90,9 @@ services:
     volumes:
       - ./databases_mock:/app/databases_mock 
 
-  tratador4_agrupar_colunas:
+  tratador_4_agrupar_colunas:
     build:
-      context: ./tratador4_agrupar_colunas
+      context: ./tratador_4_agrupar_colunas
     depends_on:
       kafka:
         condition: service_healthy
@@ -136,7 +136,7 @@ services:
     ports:
       - "8000:8000"
     depends_on:
-      - tratador-metrica
+      - tratador8_regressao
     command: ["uvicorn", "api:app", "--host", "0.0.0.0", "--port", "8000"]
 
   dashboard:
