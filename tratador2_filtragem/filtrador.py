@@ -23,29 +23,41 @@ schema = StructType([
 def filtrar_spark(df):
     """Filtros mais sofisticados com regras de negócio"""
     return df.filter(
-        (col("Populacao") > 1000) &  # População mínima relevante
+        (col("Populacao") > 1000) &
         (col("Diagnostico").isNotNull()) &
         (col("CEP").isNotNull()) &
-        ((col("Vacinado") == 1) | (col("Diagnostico") == 1))  # Apenas vacinados ou diagnosticados
+        ((col("Vacinado") == 1) | (col("Diagnostico") == 1))
     )
 
+def coerir_para_int(dado, chave):
+    try:
+        if chave in dado and dado[chave] is not None:
+            dado[chave] = int(dado[chave])
+    except Exception:
+        dado[chave] = None
+
 def process_batch(messages, spark, producer):
-    """Processa um lote de mensagens de forma mais eficiente"""
+    """Processa um lote de mensagens de forma mais segura"""
     try:
         dados = [json.loads(msg.value().decode('utf-8')) for msg in messages]
+
+        # Correção de tipos para IntegerType esperados
+        for d in dados:
+            for campo in ["Diagnostico", "Vacinado", "CEP", "Escolaridade", "Populacao"]:
+                coerir_para_int(d, campo)
+
         df = spark.createDataFrame(dados, schema=schema)
-        
         df_filtrado = filtrar_spark(df)
-        resultados = df_filtrado.collect()
-        
-        for resultado in resultados:
+        resultados_json = df_filtrado.rdd.map(lambda row: json.dumps(row.asDict())).collect()
+
+        for msg_json in resultados_json:
             producer.produce(
                 DEST_TOPIC,
-                json.dumps(resultado.asDict()).encode('utf-8')
+                msg_json.encode('utf-8')
             )
-            
-        return len(resultados), len(dados)
-        
+
+        return len(resultados_json), len(dados)
+
     except Exception as e:
         print(f"❌ Erro no processamento do lote: {e}")
         return 0, len(messages)
@@ -60,7 +72,7 @@ def main():
         "auto.offset.reset": "earliest",
         "enable.auto.commit": False
     })
-    
+
     producer = Producer({"bootstrap.servers": KAFKA_BOOTSTRAP_SERVERS})
 
     consumer.subscribe([SOURCE_TOPIC])
@@ -71,7 +83,7 @@ def main():
         start_time = time.time()
         batch_size = 50
         batch = []
-        
+
         while True:
             msg = consumer.poll(timeout=1.0)
             if msg is None:
@@ -82,7 +94,7 @@ def main():
                     consumer.commit(asynchronous=False)
                     batch = []
                 continue
-                
+
             if msg.error():
                 if msg.error().code() != KafkaError._PARTITION_EOF:
                     print(f"❌ Erro no consumidor Kafka: {msg.error()}")

@@ -1,34 +1,44 @@
 import json
 import time
+import requests
+from typing import List, Dict
 from confluent_kafka import Consumer, KafkaError
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import corr
 from pyspark.sql.types import StructType, StructField, FloatType, IntegerType
 
 KAFKA_BOOTSTRAP_SERVERS = "kafka:9092"
 GROUP_ID = "tratador_correlacao_group"
 SOURCE_TOPIC = "grouped_secretary"
+API_URL = "http://api:8000/correlacao"
 
 schema = StructType([
-    StructField("CEP", IntegerType(), True),  # ou a chave usada no agrupamento
+    StructField("CEP", IntegerType(), True),
     StructField("media_diagnostico", FloatType(), True),
     StructField("media_vacinado", FloatType(), True),
     StructField("media_escolaridade", FloatType(), True),
     StructField("media_populacao", FloatType(), True)
 ])
 
-def processar_correlacoes(df):
+def processar_correlacoes(df, enviar_api: bool = True) -> None:
     print("\n📊 Correlações calculadas:")
     try:
-        colunas = ["media_diagnostico", "media_vacinado", "media_escolaridade", "media_populacao"]
-        for i in range(len(colunas)):
-            for j in range(i + 1, len(colunas)):
-                c1 = colunas[i]
-                c2 = colunas[j]
-                valor = df.select(corr(c1, c2)).first()[0]
-                print(f"📌 Correlação entre {c1} e {c2}: {valor:.4f}")
+        # Pares específicos que o dashboard espera
+        resultados: List[Dict[str, float]] = []
+
+        # Correlação entre Escolaridade e Vacinado
+        esc_vac = df.stat.corr("media_escolaridade", "media_vacinado")
+        resultados.append({"Escolaridade": round(esc_vac, 4), "Vacinado": round(esc_vac, 4)})
+        print(f"📌 Correlação Escolaridade x Vacinado: {esc_vac:.4f}")
+
+        if enviar_api:
+            response = requests.post(API_URL, json=resultados)
+            if response.status_code == 200:
+                print("✅ Correlações enviadas com sucesso para a API")
+            else:
+                print(f"❌ Erro ao enviar para API: {response.status_code} - {response.text}")
+
     except Exception as e:
-        print(f"❌ Erro ao calcular correlações: {e}")
+        print(f"❌ Erro ao calcular ou enviar correlações: {e}")
 
 def main():
     spark = SparkSession.builder.appName("tratador_correlacao").getOrCreate()
@@ -45,8 +55,6 @@ def main():
     print(f"📦 Inscrito no tópico {SOURCE_TOPIC}")
 
     registros = []
-    start_time = time.time()
-
     try:
         while True:
             msg = consumer.poll(timeout=1.0)

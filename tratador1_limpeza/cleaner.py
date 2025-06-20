@@ -10,7 +10,7 @@ GROUP_ID = "tratador_limpeza_group"
 SOURCE_TOPIC = "raw_secretary"
 DEST_TOPIC = "clean_secretary"
 
-# Schema mais completo para validação
+# Schema robusto
 schema = StructType([
     StructField("Diagnostico", IntegerType(), True),
     StructField("Vacinado", IntegerType(), True),
@@ -21,45 +21,23 @@ schema = StructType([
 ])
 
 def limpeza(df):
-    """Aplica regras de limpeza mais robustas"""
-    df_limpo = df.filter(
-        (col("Diagnostico").isin(0, 1)) &  # Apenas 0 ou 1
+    return df.filter(
+        (col("Diagnostico").isin(0, 1)) &
         (col("Vacinado").isin(0, 1)) &
-        (col("CEP").isNotNull()) &
-        (col("CEP") >= 11001) &  # CEP mínimo válido
-        (col("CEP") <= 30999) &  # CEP máximo válido
-        (col("Escolaridade").between(0, 5)) &  # Valores válidos
+        (col("CEP").between(11001, 30999)) &
+        (col("Escolaridade").between(0, 5)) &
         (col("Populacao") > 0) &
-        (col("Data").isNotNull()))
-    return df_limpo
+        (col("Data").isNotNull())
+    )
 
-def process_message(msg, spark, producer):
-    """Processa uma mensagem individual com tratamento de erros"""
-    try:
-        dado = json.loads(msg.value().decode('utf-8'))
-        
-        # Validação básica antes de criar DataFrame
-        if not all(key in dado for key in ["Diagnostico", "Populacao"]):
-            print("🗑️ Registro incompleto descartado")
-            return None
-            
-        df = spark.createDataFrame([dado], schema=schema)
-        df_limpo = limpeza(df)
-        
-        if df_limpo.count() > 0:
-            dado_limpo = df_limpo.first().asDict()
-            producer.produce(
-                DEST_TOPIC,
-                json.dumps(dado_limpo).encode('utf-8')
-            )
-            return True
-        return False
-        
-    except json.JSONDecodeError as e:
-        print(f"❌ Erro ao decodificar JSON: {e}")
-    except Exception as e:
-        print(f"❌ Erro inesperado: {e}")
-    return None
+def process_batch(buffer, spark):
+    """
+    Processa um batch de registros usando Spark e retorna lista de JSON strings válidas.
+    """
+    df = spark.createDataFrame(buffer, schema=schema)
+    df_limpo = limpeza(df)
+    # Converter linhas para JSON
+    return df_limpo.rdd.map(lambda row: json.dumps(row.asDict())).collect()
 
 def main():
     spark = SparkSession.builder.appName("tratador_limpeza").getOrCreate()
@@ -71,44 +49,43 @@ def main():
         "auto.offset.reset": "earliest",
         "enable.auto.commit": False
     })
-    
     producer = Producer({"bootstrap.servers": KAFKA_BOOTSTRAP_SERVERS})
 
     consumer.subscribe([SOURCE_TOPIC])
-    print(f"🔍 Inscrito no tópico {SOURCE_TOPIC}. Aguardando mensagens...")
+    print(f"🔍 Aguardando mensagens no tópico {SOURCE_TOPIC}...")
+
+    buffer = []
+    batch_size = 100
+    total = limpos = 0
 
     try:
-        msg_count = processed_count = 0
-        start_time = time.time()
-        batch_size = 100
-        batch_count = 0
-        
         while True:
             msg = consumer.poll(timeout=1.0)
             if msg is None:
                 continue
-                
             if msg.error():
                 if msg.error().code() != KafkaError._PARTITION_EOF:
-                    print(f"❌ Erro no consumidor Kafka: {msg.error()}")
+                    print(f"❌ Erro Kafka: {msg.error()}")
                 continue
 
-            msg_count += 1
-            result = process_message(msg, spark, producer)
-            
-            if result is not None:
-                if result:
-                    processed_count += 1
-                batch_count += 1
-                
-                if batch_count >= batch_size:
-                    producer.flush()
-                    consumer.commit(asynchronous=False)
-                    batch_count = 0
+            try:
+                dado = json.loads(msg.value().decode('utf-8'))
+                buffer.append(dado)
+                total += 1
+            except Exception as e:
+                print(f"❌ JSON inválido: {e}")
+
+            if len(buffer) >= batch_size:
+                mensagens = process_batch(buffer, spark)
+                for msg_json in mensagens:
+                    producer.produce(DEST_TOPIC, msg_json.encode('utf-8'))
+                limpos += len(mensagens)
+                producer.flush()
+                consumer.commit()
+                buffer = []
 
     except KeyboardInterrupt:
-        print(f"\n📊 Estatísticas: {processed_count}/{msg_count} mensagens processadas")
-        print(f"⏱️  Tempo total: {time.time() - start_time:.2f} segundos")
+        print(f"\n✅ Finalizado. {limpos}/{total} mensagens válidas.")
     finally:
         producer.flush()
         consumer.close()

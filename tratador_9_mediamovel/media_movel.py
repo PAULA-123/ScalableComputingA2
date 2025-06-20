@@ -1,15 +1,18 @@
 import json
 import time
+import requests
 from datetime import datetime
+from typing import List, Dict
 from confluent_kafka import Consumer, KafkaError
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import col, avg, to_date, row_number
+from pyspark.sql.functions import col, avg, to_date
 from pyspark.sql.window import Window
-from pyspark.sql.types import StructType, StructField, IntegerType, StringType, DateType
+from pyspark.sql.types import StructType, StructField, IntegerType, StringType
 
 KAFKA_BOOTSTRAP_SERVERS = "kafka:9092"
 GROUP_ID = "tratador_media_movel_group"
 SOURCE_TOPIC = "filtered_secretary"
+API_URL = "http://api:8000/media-movel"
 
 schema = StructType([
     StructField("Diagnostico", IntegerType(), True),
@@ -17,26 +20,37 @@ schema = StructType([
     StructField("CEP", IntegerType(), True),
     StructField("Escolaridade", IntegerType(), True),
     StructField("Populacao", IntegerType(), True),
-    StructField("Data", StringType(), True)  # formato 'YYYY-MM-DD'
+    StructField("Data", StringType(), True)
 ])
 
-def calcular_media_movel(df):
-    # Converte string para tipo data
-    df = df.withColumn("Data", to_date(col("Data"), "yyyy-MM-dd"))
-    
-    # Agrupa por data e calcula média de Diagnóstico
-    df_agrupado = df.groupBy("Data").agg(avg("Diagnostico").alias("media_diagnostico_diaria"))
+def calcular_media_movel(df, enviar_api: bool = True) -> None:
+    try:
+        df = df.withColumn("Data", to_date(col("Data"), "yyyy-MM-dd"))
+        df_agrupado = df.groupBy("Data").agg(avg("Diagnostico").alias("media_diagnostico_diaria"))
 
-    # Janela de ordenação por data (últimos 7 dias, por exemplo)
-    window_spec = Window.orderBy(col("Data")).rowsBetween(-6, 0)
-    df_com_movel = df_agrupado.withColumn("media_movel", avg("media_diagnostico_diaria").over(window_spec))
+        window_spec = Window.orderBy(col("Data")).rowsBetween(-6, 0)
+        df_com_movel = df_agrupado.withColumn("media_movel", avg("media_diagnostico_diaria").over(window_spec))
 
-    # Identifica o dia mais recente e extrai apenas essa linha
-    ultima_data = df_com_movel.agg({"Data": "max"}).first()[0]
-    resultado = df_com_movel.filter(col("Data") == ultima_data)
+        ultima_data = df_com_movel.agg({"Data": "max"}).first()[0]
+        resultado = df_com_movel.filter(col("Data") == ultima_data)
 
-    print("📈 Média móvel para o dia mais recente:")
-    resultado.show(truncate=False)
+        print("\n📈 Média móvel para o dia mais recente:")
+        resultado.show(truncate=False)
+
+        resultados_json: List[Dict] = resultado.rdd.map(lambda r: {
+            "Data": r["Data"].strftime("%Y-%m-%d"),
+            "media_movel": round(r["media_movel"], 4)
+        }).collect()
+
+        if enviar_api:
+            response = requests.post(API_URL, json=resultados_json)
+            if response.status_code == 200:
+                print("✅ Média móvel enviada com sucesso para a API")
+            else:
+                print(f"❌ Erro ao enviar para API: {response.status_code} - {response.text}")
+
+    except Exception as e:
+        print(f"❌ Erro ao calcular ou enviar média móvel: {e}")
 
 def main():
     spark = SparkSession.builder.appName("tratador_media_movel").getOrCreate()

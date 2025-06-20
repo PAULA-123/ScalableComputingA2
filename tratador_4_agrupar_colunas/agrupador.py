@@ -1,5 +1,6 @@
 import json
 import time
+import requests
 from confluent_kafka import Consumer, Producer, KafkaError
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import avg
@@ -9,8 +10,8 @@ KAFKA_BOOTSTRAP_SERVERS = "kafka:9092"
 GROUP_ID = "tratador_agrupamento_group"
 SOURCE_TOPIC = "filtered_secretary"
 DEST_TOPIC = "grouped_secretary"
-
-AGRUPAR_POR = "CEP"  # <- você pode alterar para 'Data', 'Escolaridade', etc.
+API_URL = "http://api:8000/agrupamento"
+AGRUPAR_POR = "CEP"  # Pode ser alterado para 'Data', 'Escolaridade', etc.
 
 schema = StructType([
     StructField("Diagnostico", IntegerType(), True),
@@ -26,7 +27,6 @@ def process_batch(messages, spark, producer):
         dados = [json.loads(msg.value().decode("utf-8")) for msg in messages]
         df = spark.createDataFrame(dados, schema=schema)
 
-        # Agrupamento por coluna
         df_grouped = df.groupBy(AGRUPAR_POR).agg(
             avg("Diagnostico").alias("media_diagnostico"),
             avg("Vacinado").alias("media_vacinado"),
@@ -34,16 +34,23 @@ def process_batch(messages, spark, producer):
             avg("Populacao").alias("media_populacao")
         )
 
-        resultados = df_grouped.collect()
+        resultados_json = df_grouped.rdd.map(lambda row: json.dumps(row.asDict())).collect()
 
-        for row in resultados:
-            resultado_dict = row.asDict()
-            producer.produce(
-                DEST_TOPIC,
-                json.dumps(resultado_dict).encode("utf-8")
-            )
+        for msg_json in resultados_json:
+            producer.produce(DEST_TOPIC, msg_json.encode("utf-8"))
 
-        return len(resultados), len(dados)
+        # Envio para a API
+        try:
+            payload = [json.loads(r) for r in resultados_json]
+            response = requests.post(API_URL, json=payload)
+            if response.status_code == 200:
+                print("✅ Resultados enviados para API /agrupamento")
+            else:
+                print(f"❌ Erro API: {response.status_code} - {response.text}")
+        except Exception as e:
+            print(f"❌ Falha ao enviar para API: {e}")
+
+        return len(resultados_json), len(dados)
 
     except Exception as e:
         print(f"❌ Erro ao processar lote: {e}")
