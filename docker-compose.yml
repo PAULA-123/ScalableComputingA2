@@ -90,6 +90,16 @@ services:
     volumes:
       - ./databases_mock:/app/databases_mock 
 
+  tratador-media:
+    build:
+      context: ./tratador_media
+    depends_on:
+      - kafka
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+    volumes:
+      - ./databases_mock:/app/databases_mock 
+
   api:
     build:
       context: ./api
