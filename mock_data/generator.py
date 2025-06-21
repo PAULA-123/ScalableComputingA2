@@ -9,11 +9,11 @@ from confluent_kafka import Producer
 
 minLinhas = int(os.getenv("MIN_LINHAS", 50))
 maxLinhas = int(os.getenv("MAX_LINHAS", 75))
-INTERVALO_CICLO = float(os.getenv("INTERVALO_CICLO", 1.0))
+INTERVALO_CICLO = float(os.getenv("INTERVALO_CICLO", 0.2))
 
 KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092")
 
-TOPIC_OMS = os.getenv("TOPIC_OMS", "raw_oms")
+TOPIC_OMS = os.getenv("TOPIC_OMS", "raw_oms_batch")
 TOPIC_HOSPITAL = os.getenv("TOPIC_HOSPITAL", "raw_hospital")
 TOPIC_SECRETARY = os.getenv("TOPIC_SECRETARY", "raw_secretary")
 
@@ -44,8 +44,12 @@ def kafka_send(topic, data):
 
 def oms_generate_mock(rows=None, output_file="databases_mock/oms_mock.json"):
     rows = rows or random.randint(minLinhas, maxLinhas)
+    batch_size = rows  # ou: random.randint(100, 300)
+    
     dados = []
-    for _ in range(rows):
+    batch = []
+
+    for i in range(rows):
         populacao = random.randint(1000, 1_000_000)
         registro = {
             "N_obitos": random.randint(0, 1000),
@@ -56,11 +60,15 @@ def oms_generate_mock(rows=None, output_file="databases_mock/oms_mock.json"):
             "Data": gerar_data_aleatoria_na_semana()
         }
         dados.append(registro)
-        kafka_send(TOPIC_OMS, registro)
-    os.makedirs(os.path.dirname(output_file), exist_ok=True)
-    with open(output_file, "w", encoding="utf-8") as f:
-        json.dump(dados, f, indent=4, ensure_ascii=False)
-    print(f"[OMS] {rows} registros enviados para tópico '{TOPIC_OMS}'")
+        batch.append(registro)
+
+    # print(batch, flush=True)
+    mensagem = {"batch": batch}
+    kafka_send(TOPIC_OMS, mensagem)
+
+    print(f"[OMS] {rows} registros enviados em batch de tamanho {batch_size} para '{TOPIC_OMS}'", flush=True)
+
+
 
 # ==================== HOSPITAL ====================
 
@@ -116,9 +124,9 @@ if __name__ == "__main__":
     ciclo = 0
     while True:
         ciclo += 1
-        print(f"=== CICLO {ciclo} INICIADO ===", flush=True)
+        # print(f"=== CICLO {ciclo} INICIADO ===", flush=True)
         oms_generate_mock()
-        secretary_generate_mock()
-        hospital_generate_mock()
-        print(f"=== CICLO {ciclo} COMPLETO, dormindo {INTERVALO_CICLO}s ===\n", flush=True)
+        # secretary_generate_mock()
+        # hospital_generate_mock()
+        # print(f"=== CICLO {ciclo} COMPLETO, dormindo {INTERVALO_CICLO}s ===\n", flush=True)
         time.sleep(INTERVALO_CICLO)
