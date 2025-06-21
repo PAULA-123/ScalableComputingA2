@@ -1,6 +1,7 @@
 import json
 import time
 import requests
+from collections import defaultdict
 from confluent_kafka import Consumer, Producer, KafkaError
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import avg
@@ -11,7 +12,7 @@ GROUP_ID = "tratador_agrupamento_group"
 SOURCE_TOPIC = "filtered_secretary"
 DEST_TOPIC = "grouped_secretary"
 API_URL = "http://api:8000/agrupamento"
-AGRUPAR_POR = "CEP"  # Pode ser alterado para 'Data', 'Escolaridade', etc.
+AGRUPAR_POR = "CEP"
 
 schema = StructType([
     StructField("Diagnostico", IntegerType(), True),
@@ -27,6 +28,7 @@ def process_batch(messages, spark, producer):
         dados = [json.loads(msg.value().decode("utf-8")) for msg in messages]
         df = spark.createDataFrame(dados, schema=schema)
 
+        # Agrupamento por CEP
         df_grouped = df.groupBy(AGRUPAR_POR).agg(
             avg("Diagnostico").alias("media_diagnostico"),
             avg("Vacinado").alias("media_vacinado"),
@@ -34,23 +36,47 @@ def process_batch(messages, spark, producer):
             avg("Populacao").alias("media_populacao")
         )
 
-        resultados_json = df_grouped.rdd.map(lambda row: json.dumps(row.asDict())).collect()
+        resultados = df_grouped.collect()
 
-        for msg_json in resultados_json:
-            producer.produce(DEST_TOPIC, msg_json.encode("utf-8"))
+        # Obter data e total_vacinados manualmente por CEP
+        dados_por_cep = defaultdict(list)
+        for dado in dados:
+            dados_por_cep[dado["CEP"]].append(dado)
 
-        # Envio para a API
-        try:
-            payload = [json.loads(r) for r in resultados_json]
-            response = requests.post(API_URL, json=payload)
-            if response.status_code == 200:
-                print("✅ Resultados enviados para API /agrupamento")
-            else:
-                print(f"❌ Erro API: {response.status_code} - {response.text}")
-        except Exception as e:
-            print(f"❌ Falha ao enviar para API: {e}")
+        payload = []
+        for row in resultados:
+            r = row.asDict()
+            cep = r["CEP"]
+            grupo = dados_por_cep.get(cep, [])
 
-        return len(resultados_json), len(dados)
+            data_mais_comum = grupo[0]["Data"] if grupo else "01-01-2025"
+            total_vacinados = sum(p.get("Vacinado", 0) for p in grupo)
+
+            api_item = {
+                "CEP": cep,
+                "media_diagnostico": round(r["media_diagnostico"], 4),
+                "data": data_mais_comum,
+                "total_vacinados": total_vacinados
+            }
+            payload.append(api_item)
+
+            producer.produce(
+                DEST_TOPIC,
+                json.dumps(r).encode("utf-8")
+            )
+
+        # Envio para API
+        if payload:
+            try:
+                response = requests.post(API_URL, json=payload)
+                if response.status_code == 200:
+                    print("✅ Resultados enviados para API /agrupamento")
+                else:
+                    print(f"❌ Erro API: {response.status_code} - {response.text}")
+            except Exception as e:
+                print(f"❌ Falha ao enviar para API: {e}")
+
+        return len(resultados), len(dados)
 
     except Exception as e:
         print(f"❌ Erro ao processar lote: {e}")
