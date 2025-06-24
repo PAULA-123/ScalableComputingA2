@@ -100,6 +100,17 @@ services:
     volumes:
       - ./databases_mock:/app/databases_mock 
 
+  tratador-merge:
+    build:
+      context: ./tratador_merge
+    depends_on:
+      - kafka
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+    volumes:
+      - ./databases_mock:/app/databases_mock 
+      - ./volumes/checkpoints:/app/checkpoints
+
   api:
     build:
       context: ./api

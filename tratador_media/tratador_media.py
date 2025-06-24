@@ -25,9 +25,7 @@ schema = StructType([
     StructField("CEP", IntegerType(), True),
     StructField("N_recuperados", IntegerType(), True),
     StructField("N_vacinados", IntegerType(), True),
-    StructField("Data",     # poderia também ser StringType se não quiser converter
-        # DateType() se você quiser converter usando `.to_date()`
-        # StringType() se quiser deixar como está
+    StructField("Data",
         StringType(), True
     )
 ])
@@ -47,11 +45,6 @@ def marcar_alertas(df):
 def main():
     print("\n" + "="*50)
     print(" INICIANDO TRATADOR DE MÉDIA E ALERTA POR BATCH ")
-    # print("="*50)
-    # print(f"Conectando ao Kafka em: {KAFKA_BOOTSTRAP_SERVERS}")
-    # print(f"Tópico de origem: {SOURCE_TOPIC}")
-    # print(f"Tópico de destino: {DEST_TOPIC}")
-    # print(f"Grupo de consumidores: {GROUP_ID}")
     print("="*50 + "\n")
 
     consumer = Consumer({
