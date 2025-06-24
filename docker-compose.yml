@@ -1,3 +1,5 @@
+version: "3.8"
+
 services:
   zookeeper:
     image: bitnami/zookeeper:3.8
@@ -19,6 +21,8 @@ services:
         reservations:
           cpus: '0.1'
           memory: 128M
+    networks:
+      - kafka_net
 
   kafka:
     image: bitnami/kafka:3.4
@@ -47,17 +51,21 @@ services:
         reservations:
           cpus: '0.5'
           memory: 512M
+    networks:
+      - kafka_net
 
   mock-generator:
     build:
       context: ./mock_data
     command: ["sh", "-c", "sleep 5 && python generator.py"]
     environment:
-      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - KAFKA_BOOTSTRAP_SERVERS=${KAFKA_SERVERS}
     depends_on:
       kafka:
         condition: service_healthy
     restart: unless-stopped
+    # volumes:
+    #   - resultados:/app/databases_mock
     deploy:
       resources:
         limits:
@@ -66,16 +74,20 @@ services:
         reservations:
           cpus: '0.25'
           memory: 256M
+    networks:
+      - kafka_net
 
   tratador1_limpeza:
     build:
       context: ./tratador1_limpeza
     environment:
-      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - KAFKA_BOOTSTRAP_SERVERS=${KAFKA_SERVERS}
     depends_on:
       kafka:
         condition: service_healthy
     restart: unless-stopped
+    # volumes:
+    #   - resultados:/app/databases_mock
     deploy:
       resources:
         limits:
@@ -84,16 +96,20 @@ services:
         reservations:
           cpus: '0.25'
           memory: 256M
+    networks:
+      - kafka_net
 
   tratador2_filtragem:
     build:
       context: ./tratador2_filtragem
     environment:
-      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - KAFKA_BOOTSTRAP_SERVERS=${KAFKA_SERVERS}
     depends_on:
       kafka:
         condition: service_healthy
     restart: unless-stopped
+    # volumes:
+    #   - resultados:/app/databases_mock
     deploy:
       resources:
         limits:
@@ -102,16 +118,20 @@ services:
         reservations:
           cpus: '0.25'
           memory: 256M
+    networks:
+      - kafka_net
 
   tratador_4_agrupar_colunas:
     build:
       context: ./tratador_4_agrupar_colunas
     environment:
-      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - KAFKA_BOOTSTRAP_SERVERS=${KAFKA_SERVERS}
     depends_on:
       kafka:
         condition: service_healthy
     restart: unless-stopped
+    # volumes:
+    #   - resultados:/app/databases_mock
     deploy:
       resources:
         limits:
@@ -120,16 +140,20 @@ services:
         reservations:
           cpus: '0.25'
           memory: 256M
+    networks:
+      - kafka_net
 
   tratador_6_correlacao:
     build:
       context: ./tratador_6_correlacao
     environment:
-      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - KAFKA_BOOTSTRAP_SERVERS=${KAFKA_SERVERS}
     depends_on:
       kafka:
         condition: service_healthy
     restart: unless-stopped
+    # volumes:
+    #   - resultados:/app/databases_mock
     deploy:
       resources:
         limits:
@@ -138,16 +162,20 @@ services:
         reservations:
           cpus: '0.25'
           memory: 256M
+    networks:
+      - kafka_net
 
   tratador_7_desviopadrao:
     build:
       context: ./tratador_7_desviopadrao
     environment:
-      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - KAFKA_BOOTSTRAP_SERVERS=${KAFKA_SERVERS}
     depends_on:
       kafka:
         condition: service_healthy
     restart: unless-stopped
+    # volumes:
+    #   - resultados:/app/databases_mock
     deploy:
       resources:
         limits:
@@ -156,16 +184,20 @@ services:
         reservations:
           cpus: '0.25'
           memory: 256M
+    networks:
+      - kafka_net
 
   tratador_9_mediamovel:
     build:
       context: ./tratador_9_mediamovel
     environment:
-      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - KAFKA_BOOTSTRAP_SERVERS=${KAFKA_SERVERS}
     depends_on:
       kafka:
         condition: service_healthy
     restart: unless-stopped
+    # volumes:
+    #   - resultados:/app/databases_mock
     deploy:
       resources:
         limits:
@@ -174,16 +206,20 @@ services:
         reservations:
           cpus: '0.25'
           memory: 256M
+    networks:
+      - kafka_net
 
   tratador8_regressao:
     build:
       context: ./tratador8_regressao
     environment:
-      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - KAFKA_BOOTSTRAP_SERVERS=${KAFKA_SERVERS}
     depends_on:
       kafka:
         condition: service_healthy
     restart: unless-stopped
+    # volumes:
+    #   - resultados:/app/databases_mock
     deploy:
       resources:
         limits:
@@ -192,16 +228,20 @@ services:
         reservations:
           cpus: '0.25'
           memory: 256M
+    networks:
+      - kafka_net
 
   api:
     build:
       context: ./api
     ports:
-      - "8000:8000"
+      - "${API_PORT}:8000"
     depends_on:
       - tratador8_regressao
     command: ["uvicorn", "api:app", "--host", "0.0.0.0", "--port", "8000"]
     restart: unless-stopped
+    # volumes:
+    #   - resultados:/app/databases_mock
     deploy:
       resources:
         limits:
@@ -210,12 +250,14 @@ services:
         reservations:
           cpus: '0.1'
           memory: 128M
+    networks:
+      - kafka_net
 
   dashboard:
     build:
       context: ./dashboard
     ports:
-      - "8501:8501"
+      - "${DASHBOARD_PORT}:8501"
     depends_on:
       - api
     command: ["streamlit", "run", "dashboard.py", "--server.port=8501", "--server.address=0.0.0.0"]
@@ -228,3 +270,11 @@ services:
         reservations:
           cpus: '0.25'
           memory: 256M
+    networks:
+      - kafka_net
+
+# volumes:
+#   resultados:
+
+networks:
+  kafka_net:
