@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   zookeeper:
     image: bitnami/zookeeper:3.8
@@ -7,14 +5,20 @@ services:
       - "2181:2181"
     environment:
       - ALLOW_ANONYMOUS_LOGIN=yes
-    volumes:
-      - zookeeper_data:/bitnami
     healthcheck:
       test: ["CMD", "zkServer.sh", "status"]
       interval: 10s
       timeout: 5s
       retries: 3
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.2'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
   kafka:
     image: bitnami/kafka:3.4
@@ -29,56 +33,57 @@ services:
     depends_on:
       zookeeper:
         condition: service_healthy
-    volumes:
-      - kafka_data:/bitnami
     healthcheck:
       test: ["CMD", "kafka-topics.sh", "--list", "--bootstrap-server", "localhost:9092"]
       interval: 10s
       timeout: 5s
       retries: 10
     restart: unless-stopped
-
-  redis:
-    image: redis:7
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 1s
-      retries: 3
-    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
 
   mock-generator:
     build:
       context: ./mock_data
     command: ["sh", "-c", "sleep 5 && python generator.py"]
     environment:
-      - REDIS_HOST=redis
       - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
     depends_on:
-      redis:
-        condition: service_healthy
       kafka:
         condition: service_healthy
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
 
   tratador1_limpeza:
     build:
       context: ./tratador1_limpeza
     environment:
-      - REDIS_HOST=redis
       - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
     depends_on:
-      redis:
-        condition: service_healthy
       kafka:
         condition: service_healthy
-    volumes:
-      - ./artifacts:/app/artifacts
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
 
   tratador2_filtragem:
     build:
@@ -89,6 +94,14 @@ services:
       kafka:
         condition: service_healthy
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
 
   tratador_4_agrupar_colunas:
     build:
@@ -99,6 +112,14 @@ services:
       kafka:
         condition: service_healthy
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
 
   tratador_6_correlacao:
     build:
@@ -109,6 +130,14 @@ services:
       kafka:
         condition: service_healthy
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
 
   tratador_7_desviopadrao:
     build:
@@ -119,6 +148,14 @@ services:
       kafka:
         condition: service_healthy
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
 
   tratador_9_mediamovel:
     build:
@@ -129,18 +166,32 @@ services:
       kafka:
         condition: service_healthy
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
 
   tratador8_regressao:
     build:
       context: ./tratador8_regressao
     environment:
       - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
-    volumes:
-      - ./databases_mock:/app/databases_mock
     depends_on:
       kafka:
         condition: service_healthy
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
 
   api:
     build:
@@ -151,6 +202,14 @@ services:
       - tratador8_regressao
     command: ["uvicorn", "api:app", "--host", "0.0.0.0", "--port", "8000"]
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
   dashboard:
     build:
@@ -161,8 +220,11 @@ services:
       - api
     command: ["streamlit", "run", "dashboard.py", "--server.port=8501", "--server.address=0.0.0.0"]
     restart: unless-stopped
-
-volumes:
-  zookeeper_data:
-  kafka_data:
-  redis_data:
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
