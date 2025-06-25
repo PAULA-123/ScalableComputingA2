@@ -29,9 +29,9 @@ class Resultado(BaseModel):
 
 class Agrupado(BaseModel):
     CEP: int
-    data: Optional[str]
     media_diagnostico: float
-    total_vacinados: int
+    data: Optional[str] = None
+    total_vacinados: Optional[int] = None
 
 class Correlacao(BaseModel):
     Escolaridade: float
@@ -59,6 +59,7 @@ class EvolucaoVacinacao(BaseModel):
 class EvolucaoDiagnostico(BaseModel):
     Data: str
     total_diagnosticos: int
+
 
 # ==========================
 # DADOS EM MEMÓRIA

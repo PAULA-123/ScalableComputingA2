@@ -113,7 +113,9 @@ def gerar_lote_secretaria(rows=None):
 
 if __name__ == "__main__":
     print("🚀 Mock generator rodando em loop contínuo (CTRL+C para parar)", flush=True)
-    aguardar_kafka()
+    # Extrai host e porta da string kafka:9092
+    host, port = KAFKA_BOOTSTRAP_SERVERS.split(":")
+    aguardar_kafka(host=host, port=int(port))
     producer = Producer({"bootstrap.servers": KAFKA_BOOTSTRAP_SERVERS})
     while True:
         gerar_lote_secretaria()

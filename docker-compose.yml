@@ -89,11 +89,11 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '1.0'
-          memory: 1024M
-        reservations:
           cpus: '0.5'
-          memory: 512M   
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M  
     networks:
       - kafka_net
 
@@ -109,11 +109,11 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '1.0'
-          memory: 1024M
-        reservations:
           cpus: '0.5'
-          memory: 512M   
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M  
     networks:
       - kafka_net
 
@@ -133,7 +133,7 @@ services:
           memory: 512M
         reservations:
           cpus: '0.25'
-          memory: 256M
+          memory: 256M  
     networks:
       - kafka_net
   tratador4_agrupar_m2:
@@ -152,7 +152,7 @@ services:
           memory: 512M
         reservations:
           cpus: '0.25'
-          memory: 256M   
+          memory: 256M  
     networks:
       - kafka_net
 
@@ -172,10 +172,30 @@ services:
           memory: 512M
         reservations:
           cpus: '0.25'
-          memory: 256M   
+          memory: 256M  
     networks:
       - kafka_net
 
+  tratador4_agrupar_diagnostico:
+    build:
+      context: ./tratadores
+    command: t4_agrupar_diagnostico.py
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+    depends_on:
+      kafka:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M  
+    networks:
+      - kafka_net
+      
   tratador6_correlacao:
     build:
       context: ./tratadores
