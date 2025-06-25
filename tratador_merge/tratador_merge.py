@@ -1,3 +1,15 @@
+"""
+Este script é responsável por consumir batches de dados dos tópicos Kafka referentes
+a registros hospitalares e da secretaria de saúde, e realizar um merge inteligente
+desses dados com base no CEP, utilizando Spark para agregações eficientes.
+
+Ele trata dois cenários distintos:
+1. Dados históricos: Acumulam em memória até sinal de fim, quando então são processados de uma só vez.
+2. Dados normais: São processados imediatamente por lote, sem acúmulo.
+
+O objetivo é permitir um pipeline de ingestão flexível, balanceado e escalável para diferentes fluxos.
+"""
+
 import json
 import time
 import os
@@ -6,18 +18,22 @@ from pyspark.sql import SparkSession
 from pyspark.sql.functions import col, sum as spark_sum
 from pyspark.sql.types import StructType, StructField, IntegerType, StringType
 
+# Configuração
 KAFKA_BOOTSTRAP_SERVERS = "kafka:9092"
 GROUP_ID = "tratador_merge_group"
+
+# Tópicos para dados em tempo real
 TOPIC_HOSPITAL_B = "raw_hospital_b"
 TOPIC_SECRETARY_B = "raw_secretary_b"
 
-FLUSH = True
+# Tópicos para dados  históricos
+# TOPIC_HOSPITAL_B = "raw_hospital_h"
+# TOPIC_SECRETARY_B = "raw_secretary_h"
 
-# Inicializa Spark
 spark = SparkSession.builder.appName("tratador_merge_batch").getOrCreate()
 spark.sparkContext.setLogLevel("ERROR")
 
-# Schemas
+# Define o schema para dados hospitalares
 hospital_schema = StructType([
     StructField("ID_Hospital", IntegerType(), True),
     StructField("Data", StringType(), True),
@@ -31,6 +47,7 @@ hospital_schema = StructType([
     StructField("Sintoma4", IntegerType(), True)
 ])
 
+# Define o schema para dados da secretaria
 secretary_schema = StructType([
     StructField("Diagnostico", IntegerType(), True),
     StructField("Vacinado", IntegerType(), True),
@@ -40,11 +57,23 @@ secretary_schema = StructType([
     StructField("Data", StringType(), True)
 ])
 
+# Funçaõ de processamento
 def processar_batch(dados_hosp, dados_secr):
+    """
+    Recebe listas de registros hospitalares e da secretaria,
+    e realiza agregações por CEP, unificando os dados em um único DataFrame.
+
+    Parâmetros:
+        dados_hosp (list): registros do hospital
+        dados_secr (list): registros da secretaria
+
+    Retorno:
+        DataFrame Spark com dados agregados e mesclados
+    """
     df_hosp = spark.createDataFrame(dados_hosp, schema=hospital_schema)
     df_secr = spark.createDataFrame(dados_secr, schema=secretary_schema)
 
-    # Agregação por CEP
+    # Agrega informações hospitalares por CEP
     agg_hosp = df_hosp.groupBy("CEP").agg(
         spark_sum("Internado").alias("Total_Internados"),
         spark_sum("Idade").alias("Soma_Idade"),
@@ -54,6 +83,7 @@ def processar_batch(dados_hosp, dados_secr):
         spark_sum("Sintoma4").alias("Total_Sintoma4")
     )
 
+    # Agrega informações da secretaria por CEP
     agg_secr = df_secr.groupBy("CEP").agg(
         spark_sum("Diagnostico").alias("Total_Diagnosticos"),
         spark_sum("Vacinado").alias("Total_Vacinados"),
@@ -61,8 +91,8 @@ def processar_batch(dados_hosp, dados_secr):
         spark_sum("Populacao").alias("Soma_Populacao")
     )
 
-    merged = agg_hosp.join(agg_secr, on="CEP", how="outer")
-    merged = merged.fillna(0)
+    # Faz o merge das duas agregações, mantendo todos os CEPs
+    merged = agg_hosp.join(agg_secr, on="CEP", how="outer").fillna(0)
     return merged
 
 def main():
@@ -70,6 +100,7 @@ def main():
     print(" INICIANDO TRATADOR DE MERGE POR BATCH ")
     print("="*50 + "\n")
 
+    # Criação do consumidor Kafka
     consumer = Consumer({
         "bootstrap.servers": KAFKA_BOOTSTRAP_SERVERS,
         "group.id": GROUP_ID,
@@ -77,16 +108,26 @@ def main():
         "enable.auto.commit": False
     })
 
+    # Inscreve o consumidor nos tópicos
     consumer.subscribe([TOPIC_HOSPITAL_B, TOPIC_SECRETARY_B])
-    print("Inscrito nos tópicos:", TOPIC_HOSPITAL_B, TOPIC_SECRETARY_B, flush=FLUSH)
+    print("Inscrito nos tópicos:", TOPIC_HOSPITAL_B, TOPIC_SECRETARY_B)
 
-    dados_hosp = []
-    dados_secr = []
+    # Buffers para armazenar dados históricos
+    dados_hosp_historico = []
+    dados_secr_historico = []
+    fim_hosp = False
+    fim_secr = False
+
+    # Buffers para dados em tempo real
+    dados_hosp_normal = []
+    dados_secr_normal = []
+
     msg_count = 0
     start_time = time.time()
 
     try:
         while True:
+            # Tenta buscar uma nova mensagem Kafka
             msg = consumer.poll(timeout=1.0)
             if msg is None:
                 continue
@@ -94,44 +135,73 @@ def main():
                 if msg.error().code() == KafkaError._PARTITION_EOF:
                     continue
                 else:
-                    print(f"❌ Erro no consumidor: {msg.error()}")
+                    print(f"Erro no consumidor: {msg.error()}")
                     continue
 
             try:
+                # Decodifica a mensagem recebida
                 raw = msg.value().decode("utf-8")
                 payload = json.loads(raw)
+
                 registros = payload.get("batch", [])
+                source = payload.get("source", "")
+                # coloca normal por padrão
+                msg_type = payload.get("type", "normal") 
 
-                if msg.topic() == TOPIC_HOSPITAL_B:
-                    dados_hosp.extend(registros)
-                    print(f"[HOSPITAL] +{len(registros)} registros (total: {len(dados_hosp)})")
-                elif msg.topic() == TOPIC_SECRETARY_B:
-                    dados_secr.extend(registros)
-                    print(f"[SECRETARIA] +{len(registros)} registros (total: {len(dados_secr)})")
+                # Caso seja o fim do histórico de uma fonte
+                if msg_type == "fim_historico":
+                    if msg.topic() == TOPIC_HOSPITAL_B:
+                        fim_hosp = True
+                        print("[HOSPITAL] Recebido fim do histórico")
+                    elif msg.topic() == TOPIC_SECRETARY_B:
+                        fim_secr = True
+                        print("[SECRETARIA] Recebido fim do histórico")
 
-                # Processa quando houver dados de ambos os tópicos
-                if len(dados_hosp) > 0 and len(dados_secr) > 0:
+                # Caso seja um lote intermediário de dados históricos
+                elif msg_type == "dados":
+                    if msg.topic() == TOPIC_HOSPITAL_B:
+                        dados_hosp_historico.extend(registros)
+                        print(f"[HOSPITAL HISTÓRICO] +{len(registros)} registros (total: {len(dados_hosp_historico)})")
+                    elif msg.topic() == TOPIC_SECRETARY_B:
+                        dados_secr_historico.extend(registros)
+                        print(f"[SECRETARIA HISTÓRICO] +{len(registros)} registros (total: {len(dados_secr_historico)})")
+
+                # Caso seja um lote de dados normais (em tempo real)
+                else:
+                    if msg.topic() == TOPIC_HOSPITAL_B:
+                        dados_hosp_normal.extend(registros)
+                        print(f"[HOSPITAL] +{len(registros)} registros (total: {len(dados_hosp_normal)})")
+                    elif msg.topic() == TOPIC_SECRETARY_B:
+                        dados_secr_normal.extend(registros)
+                        print(f"[SECRETARIA] +{len(registros)} registros (total: {len(dados_secr_normal)})")
+
+                # Quando há dados normais de ambas fontes, processa imediatamente
+                if len(dados_hosp_normal) > 0 and len(dados_secr_normal) > 0:
                     msg_count += 1
-                    df_merge = processar_batch(dados_hosp, dados_secr)
+                    df_merge = processar_batch(dados_hosp_normal, dados_secr_normal)
 
-                    output_dir = "databases_mock"
-                    output_file = os.path.join(output_dir, "merge_batch.json")
-                    os.makedirs(output_dir, exist_ok=True)
+                    print(f"Merge NORMAL com {df_merge.count()} linhas")
 
-                    linhas_json = df_merge.toJSON().collect()
-                    with open(output_file, "w", encoding="utf-8") as f:
-                        for linha in linhas_json:
-                            f.write(linha + "\n")
+                    # Limpa buffers e marca commit
+                    dados_hosp_normal = []
+                    dados_secr_normal = []
+                    consumer.commit(asynchronous=False)
 
-                    print(f"✅ Merge salvo em {output_file} com {df_merge.count()} linhas")
+                # Quando os dados históricos de ambas as fontes chegaram, processa o merge final
+                if fim_hosp and fim_secr:
+                    df_merge = processar_batch(dados_hosp_historico, dados_secr_historico)
 
-                    # Reset após salvar
-                    dados_hosp = []
-                    dados_secr = []
+                    print(f"Merge HISTÓRICO FINAL com {df_merge.count()} linhas")
+
+                    # Limpa buffers e reinicia sinalizadores
+                    dados_hosp_historico = []
+                    dados_secr_historico = []
+                    fim_hosp = False
+                    fim_secr = False
                     consumer.commit(asynchronous=False)
 
             except Exception as e:
-                print(f"❌ Erro ao processar mensagem: {e}")
+                print(f"Erro ao processar mensagem: {e}")
 
     except KeyboardInterrupt:
         print("\n" + "="*50)
@@ -142,5 +212,6 @@ def main():
     finally:
         consumer.close()
 
+# Executa o consumidor quando chamado diretamente
 if __name__ == "__main__":
     main()
