@@ -58,37 +58,91 @@ services:
       kafka:
         condition: service_healthy
 
+  # Atualizado para o cleaner unificado
   tratador-limpeza:
     build:
       context: ./tratador_limpeza
     environment:
-      - REDIS_HOST=redis
       - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - SPARK_DRIVER_MEMORY=2g
+      - SPARK_EXECUTOR_MEMORY=2g
     depends_on:
-      redis:
-        condition: service_healthy
-      kafka:
-        condition: service_healthy
+      - kafka
+      - mock-generator
     volumes:
       - ./artifacts:/app/artifacts
+      - ./logs/cleaner:/app/logs
+    deploy:
+      resources:
+        limits:
+          memory: 4G
 
   tratador-filtragem:
     build:
       context: ./tratador_filtragem
-    depends_on:
-      - kafka
     environment:
       - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
-
-  tratador-metrica:
-    build:
-      context: ./tratador_metrica
+      - SPARK_DRIVER_MEMORY=2g
+      - SPARK_EXECUTOR_MEMORY=2g
     depends_on:
       - kafka
-    environment:
-      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - tratador-limpeza
     volumes:
-      - ./databases_mock:/app/databases_mock 
+      - ./logs/filtrador:/app/logs
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+
+  tratador-merge:
+    build:
+      context: ./tratador_merge
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - SPARK_DRIVER_MEMORY=1g
+      - GROUP_ID=tratador_merge_group
+      - API_URL=http://api:8000/merge-cep
+      - OUTPUT_FILE=/app/databases_mock/merge_batch.json
+    depends_on:
+      - kafka
+      - tratador-filtragem
+    volumes:
+      - ./databases_mock:/app/databases_mock:z
+      - ./logs/merge:/app/logs
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+    healthcheck:
+      test: ["CMD", "pgrep", "-f", "tratador_merge.py"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  tratador-media:
+    build:
+      context: ./tratador_media
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - SPARK_DRIVER_MEMORY=1g
+      - GROUP_ID=tratador_alerta_group
+      - API_URL=http://api:8000/alerta-obitos
+      - OUTPUT_FILE=/app/databases_mock/alerta_batch.json
+    depends_on:
+      - kafka
+      - tratador-filtragem
+    volumes:
+      - ./databases_mock:/app/databases_mock:z
+      - ./logs/media:/app/logs
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+    healthcheck:
+      test: ["CMD", "pgrep", "-f", "tratador_media.py"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
   api:
     build:
@@ -96,7 +150,8 @@ services:
     ports:
       - "8000:8000"
     depends_on:
-      - tratador-metrica
+      - tratador-merge
+      - tratador-media
     command: ["uvicorn", "api:app", "--host", "0.0.0.0", "--port", "8000"]
 
   dashboard:

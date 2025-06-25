@@ -9,15 +9,17 @@ from confluent_kafka import Producer
 
 minLinhas = int(os.getenv("MIN_LINHAS", 50))
 maxLinhas = int(os.getenv("MAX_LINHAS", 75))
-INTERVALO_CICLO = float(os.getenv("INTERVALO_CICLO", 1.0))
+INTERVALO_CICLO = float(os.getenv("INTERVALO_CICLO", 10))
 
 KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092")
 
-TOPIC_OMS = os.getenv("TOPIC_OMS", "raw_oms")
-TOPIC_HOSPITAL = os.getenv("TOPIC_HOSPITAL", "raw_hospital")
-TOPIC_SECRETARY = os.getenv("TOPIC_SECRETARY", "raw_secretary")
+TOPIC_OMS_b = os.getenv("TOPIC_OMS_b", "raw_oms_b")
+TOPIC_HOSPITAL_b = os.getenv("TOPIC_HOSPITAL_b", "raw_hospital_b")
+TOPIC_SECRETARY_b = os.getenv("TOPIC_SECRETARY_b", "raw_secretary_b")
 
 producer = Producer({"bootstrap.servers": KAFKA_BOOTSTRAP_SERVERS})
+
+FLUSH = True
 
 # ==================== CEPs ====================
 
@@ -42,10 +44,13 @@ def kafka_send(topic, data):
 
 # ==================== OMS ====================
 
-def oms_generate_mock(rows=None, output_file="databases_mock/oms_mock.json"):
+def oms_generate_mock_batch(rows=None):
     rows = rows or random.randint(minLinhas, maxLinhas)
+    batch_size = rows   # ou: random.randint(100, 300)
     dados = []
-    for _ in range(rows):
+    batch = []
+    
+    for i in range(rows):
         populacao = random.randint(1000, 1_000_000)
         registro = {
             "N_obitos": random.randint(0, 1000),
@@ -56,16 +61,18 @@ def oms_generate_mock(rows=None, output_file="databases_mock/oms_mock.json"):
             "Data": gerar_data_aleatoria_na_semana()
         }
         dados.append(registro)
-        kafka_send(TOPIC_OMS, registro)
-    os.makedirs(os.path.dirname(output_file), exist_ok=True)
-    with open(output_file, "w", encoding="utf-8") as f:
-        json.dump(dados, f, indent=4, ensure_ascii=False)
-    print(f"[OMS] {rows} registros enviados para tópico '{TOPIC_OMS}'")
+        batch.append(registro)
+        
+        mensagem = {"batch": batch}
+        kafka_send(TOPIC_OMS_b, mensagem)
+        
+        print(f"[OMS] {rows} registros enviados em batch de tamanho {batch_size} para '{TOPIC_OMS_b}'", flush=FLUSH)
 
 # ==================== HOSPITAL ====================
 
-def hospital_generate_mock(rows=None, output_file="databases_mock/hospital_mock.json"):
-    rows = rows or 100
+def hospital_generate_mock_batch(rows=None):
+    # manda mensagem por batch
+    rows = random.randint(minLinhas, maxLinhas)
     dados = []
     for _ in range(rows):
         registro = {
@@ -81,15 +88,14 @@ def hospital_generate_mock(rows=None, output_file="databases_mock/hospital_mock.
             "Sintoma4": random.randint(0, 1),
         }
         dados.append(registro)
-        kafka_send(TOPIC_HOSPITAL, registro)
-    os.makedirs(os.path.dirname(output_file), exist_ok=True)
-    with open(output_file, "w", encoding="utf-8") as f:
-        json.dump(dados, f, indent=4, ensure_ascii=False)
-    print(f"[HOSPITAL] {rows} registros enviados para tópico '{TOPIC_HOSPITAL}'")
+    
+    mensagem = {"batch": dados}
+    kafka_send(TOPIC_HOSPITAL_b, mensagem)
+    print(f"[HOSPITAL] {rows} registros enviados para tópico '{TOPIC_HOSPITAL_b}'", flush=FLUSH)
 
 # ==================== SECRETARIA ====================
 
-def secretary_generate_mock(rows=None, output_file="databases_mock/secretary_mock.json"):
+def secretary_generate_mock_batch(rows=None):
     rows = rows or random.randint(minLinhas, maxLinhas)
     dados = []
     for _ in range(rows):
@@ -102,11 +108,10 @@ def secretary_generate_mock(rows=None, output_file="databases_mock/secretary_moc
             "Data": gerar_data_aleatoria_na_semana()
         }
         dados.append(registro)
-        kafka_send(TOPIC_SECRETARY, registro)
-    os.makedirs(os.path.dirname(output_file), exist_ok=True)
-    with open(output_file, "w", encoding="utf-8") as f:
-        json.dump(dados, f, indent=4, ensure_ascii=False)
-    print(f"[SECRETARIA] {rows} registros enviados para tópico '{TOPIC_SECRETARY}'")
+    
+    mensagem = {"batch": dados}
+    kafka_send(TOPIC_SECRETARY_b, mensagem)
+    print(f"[SECRETARIA] {rows} registros enviados para tópico '{TOPIC_SECRETARY_b}'")
 
 # ==================== LOOP PRINCIPAL ====================
 
@@ -116,9 +121,9 @@ if __name__ == "__main__":
     ciclo = 0
     while True:
         ciclo += 1
-        print(f"=== CICLO {ciclo} INICIADO ===", flush=True)
-        oms_generate_mock()
-        secretary_generate_mock()
-        hospital_generate_mock()
-        print(f"=== CICLO {ciclo} COMPLETO, dormindo {INTERVALO_CICLO}s ===\n", flush=True)
+        print(f"=== CICLO {ciclo} INICIADO ===", flush=FLUSH)
+        oms_generate_mock_batch()
+        secretary_generate_mock_batch()
+        hospital_generate_mock_batch()
+        # print(f"=== CICLO {ciclo} COMPLETO, dormindo {INTERVALO_CICLO}s ===\n", flush=FLUSH)
         time.sleep(INTERVALO_CICLO)

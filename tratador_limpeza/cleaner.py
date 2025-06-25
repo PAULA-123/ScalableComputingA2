@@ -6,63 +6,135 @@ from pyspark.sql.functions import col
 from pyspark.sql.types import StructType, StructField, IntegerType, StringType
 
 KAFKA_BOOTSTRAP_SERVERS = "kafka:9092"
-GROUP_ID = "tratador_limpeza_group"
-SOURCE_TOPIC = "raw_secretary"
-DEST_TOPIC = "clean_secretary"
+GROUP_ID = "cleaner_group"
 
-# Schema mais completo para validação
-schema = StructType([
-    StructField("Diagnostico", IntegerType(), True),
-    StructField("Vacinado", IntegerType(), True),
-    StructField("CEP", IntegerType(), True),
-    StructField("Escolaridade", IntegerType(), True),
-    StructField("Populacao", IntegerType(), True),
-    StructField("Data", StringType(), True)
-])
+# Tópicos de entrada e saída para cada tipo
+TOPICS_IN = {
+    'secretary': 'raw_secretary_b',
+    'hospital': 'raw_hospital_b',
+    'oms': 'raw_oms_b'
+}
 
-def limpeza(df):
-    """Aplica regras de limpeza mais robustas"""
-    df_limpo = df.filter(
-        (col("Diagnostico").isin(0, 1)) &  # Apenas 0 ou 1
+TOPICS_OUT = {
+    'secretary': 'clean_secretary',
+    'hospital': 'clean_hospital',
+    'oms': 'clean_oms'
+}
+
+# Schemas para cada tipo de dado
+SCHEMAS = {
+    'secretary': StructType([
+        StructField("Diagnostico", IntegerType(), True),
+        StructField("Vacinado", IntegerType(), True),
+        StructField("CEP", IntegerType(), True),
+        StructField("Escolaridade", IntegerType(), True),
+        StructField("Populacao", IntegerType(), True),
+        StructField("Data", StringType(), True)
+    ]),
+    'hospital': StructType([
+        StructField("ID_Hospital", IntegerType(), True),
+        StructField("Data", StringType(), True),
+        StructField("Internado", IntegerType(), True),
+        StructField("Idade", IntegerType(), True),
+        StructField("Sexo", IntegerType(), True),
+        StructField("CEP", IntegerType(), True),
+        StructField("Sintoma1", IntegerType(), True),
+        StructField("Sintoma2", IntegerType(), True),
+        StructField("Sintoma3", IntegerType(), True),
+        StructField("Sintoma4", IntegerType(), True)
+    ]),
+    'oms': StructType([
+        StructField("N_obitos", IntegerType(), True),
+        StructField("Populacao", IntegerType(), True),
+        StructField("CEP", IntegerType(), True),
+        StructField("N_recuperados", IntegerType(), True),
+        StructField("N_vacinados", IntegerType(), True),
+        StructField("Data", StringType(), True)
+    ])
+}
+
+# Funções de limpeza específicas para cada tipo
+def clean_secretary(df):
+    return df.filter(
+        (col("Diagnostico").isin(0, 1)) &
         (col("Vacinado").isin(0, 1)) &
         (col("CEP").isNotNull()) &
-        (col("CEP") >= 11001) &  # CEP mínimo válido
-        (col("CEP") <= 30999) &  # CEP máximo válido
-        (col("Escolaridade").between(0, 5)) &  # Valores válidos
+        (col("CEP") >= 11001) &
+        (col("CEP") <= 30999) &
+        (col("Escolaridade").between(0, 5)) &
         (col("Populacao") > 0) &
-        (col("Data").isNotNull()))
-    return df_limpo
+        (col("Data").isNotNull())
+    )
 
-def process_message(msg, spark, producer):
-    """Processa uma mensagem individual com tratamento de erros"""
+def clean_hospital(df):
+    return df.filter(
+        (col("Internado").isin(0, 1)) &
+        (col("Idade").between(0, 120)) &
+        (col("Sexo").isin(0, 1)) &
+        (col("CEP").isNotNull()) &
+        (col("Sintoma1").isin(0, 1)) &
+        (col("Sintoma2").isin(0, 1)) &
+        (col("Sintoma3").isin(0, 1)) &
+        (col("Sintoma4").isin(0, 1)) &
+        (col("Data").isNotNull())
+    )
+
+def clean_oms(df):
+    return df.filter(
+        (col("N_obitos") >= 0) &
+        (col("Populacao") > 0) &
+        (col("N_recuperados") >= 0) &
+        (col("N_vacinados") >= 0) &
+        (col("CEP").isNotNull()) &
+        (col("Data").isNotNull())
+    )
+
+def process_batch(msg, spark, producer):
     try:
-        dado = json.loads(msg.value().decode('utf-8'))
-        
-        # Validação básica antes de criar DataFrame
-        if not all(key in dado for key in ["Diagnostico", "Populacao"]):
-            print("🗑️ Registro incompleto descartado")
+        payload = json.loads(msg.value().decode('utf-8'))
+        if 'batch' not in payload:
+            print("Formato de mensagem inválido - sem campo 'batch'")
             return None
-            
-        df = spark.createDataFrame([dado], schema=schema)
-        df_limpo = limpeza(df)
+
+        # Determinar o tipo de dados pelo tópico
+        data_type = None
+        for dtype, topic in TOPICS_IN.items():
+            if msg.topic() == topic:
+                data_type = dtype
+                break
         
-        if df_limpo.count() > 0:
-            dado_limpo = df_limpo.first().asDict()
+        if not data_type:
+            print(f"Tópico desconhecido: {msg.topic()}")
+            return None
+
+        # Processar o batch inteiro
+        dados = payload['batch']
+        df = spark.createDataFrame(dados, schema=SCHEMAS[data_type])
+        
+        # Aplicar a função de limpeza correta
+        if data_type == 'secretary':
+            df_limpo = clean_secretary(df)
+        elif data_type == 'hospital':
+            df_limpo = clean_hospital(df)
+        elif data_type == 'oms':
+            df_limpo = clean_oms(df)
+
+        # Enviar como BATCH para o próximo estágio
+        batch_limpo = [row.asDict() for row in df_limpo.collect()]
+        if batch_limpo:
             producer.produce(
-                DEST_TOPIC,
-                json.dumps(dado_limpo).encode('utf-8')
+                TOPICS_OUT[data_type],
+                json.dumps({"batch": batch_limpo}).encode('utf-8')
             )
-            return True
-        return False
         
-    except json.JSONDecodeError as e:
-        print(f"❌ Erro ao decodificar JSON: {e}")
+        return len(batch_limpo)
+        
     except Exception as e:
-        print(f"❌ Erro inesperado: {e}")
-    return None
+        print(f"Erro ao processar mensagem: {e}")
+        return None
 
 def main():
-    spark = SparkSession.builder.appName("tratador_limpeza").getOrCreate()
+    spark = SparkSession.builder.appName("cleaner_unificado").getOrCreate()
     spark.sparkContext.setLogLevel("ERROR")
 
     consumer = Consumer({
@@ -74,14 +146,13 @@ def main():
     
     producer = Producer({"bootstrap.servers": KAFKA_BOOTSTRAP_SERVERS})
 
-    consumer.subscribe([SOURCE_TOPIC])
-    print(f"🔍 Inscrito no tópico {SOURCE_TOPIC}. Aguardando mensagens...")
+    consumer.subscribe(list(TOPICS_IN.values()))
+    print("COMEÇOU A LIMPEZA")
+    print(f"Inscrito nos tópicos: {list(TOPICS_IN.values())}. Aguardando mensagens...")
 
     try:
         msg_count = processed_count = 0
         start_time = time.time()
-        batch_size = 100
-        batch_count = 0
         
         while True:
             msg = consumer.poll(timeout=1.0)
@@ -90,25 +161,21 @@ def main():
                 
             if msg.error():
                 if msg.error().code() != KafkaError._PARTITION_EOF:
-                    print(f"❌ Erro no consumidor Kafka: {msg.error()}")
+                    print(f"Erro no consumidor Kafka: {msg.error()}")
                 continue
 
             msg_count += 1
-            result = process_message(msg, spark, producer)
+            result = process_batch(msg, spark, producer)
+            print("LIMPOU", flush=True)
             
             if result is not None:
-                if result:
-                    processed_count += 1
-                batch_count += 1
-                
-                if batch_count >= batch_size:
-                    producer.flush()
-                    consumer.commit(asynchronous=False)
-                    batch_count = 0
+                processed_count += result
+                producer.flush()
+                consumer.commit(asynchronous=False)
 
     except KeyboardInterrupt:
-        print(f"\n📊 Estatísticas: {processed_count}/{msg_count} mensagens processadas")
-        print(f"⏱️  Tempo total: {time.time() - start_time:.2f} segundos")
+        print(f"\nEstatísticas: {processed_count}/{msg_count} mensagens processadas")
+        print(f"Tempo total: {time.time() - start_time:.2f} segundos")
     finally:
         producer.flush()
         consumer.close()

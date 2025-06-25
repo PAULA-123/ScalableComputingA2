@@ -32,7 +32,7 @@ COPY --chown=1001:1001 requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # 7. Copia o código fonte
-COPY --chown=1001:1001 metrica.py .
+COPY --chown=1001:1001 tratador_merge.py .
 
 # 8. Comando de execução
-CMD ["spark-submit", "--master", "local[*]", "/app/metrica.py"]
+CMD ["spark-submit", "--master", "local[*]", "/app/tratador_merge.py"]

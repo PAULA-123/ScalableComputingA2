@@ -1,3 +1,0 @@
-redis
-confluent-kafka==2.0.2
-requests
