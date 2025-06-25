@@ -1,10 +1,9 @@
 import json
 import time
 import requests
-from collections import defaultdict
 from confluent_kafka import Consumer, Producer, KafkaError
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import avg
+from pyspark.sql.functions import avg, first, sum as _sum
 from pyspark.sql.types import StructType, StructField, IntegerType, StringType
 
 KAFKA_BOOTSTRAP_SERVERS = "kafka:9092"
@@ -25,61 +24,45 @@ schema = StructType([
 
 def process_batch(messages, spark, producer):
     try:
-        dados = [json.loads(msg.value().decode("utf-8")) for msg in messages]
-        df = spark.createDataFrame(dados, schema=schema)
+        json_strings = [msg.value().decode("utf-8") for msg in messages]
+        df = spark.read.json(spark.sparkContext.parallelize(json_strings), schema=schema)
 
-        # Agrupamento por CEP
+        # Agrupamento com Spark: manter paralelismo
         df_grouped = df.groupBy(AGRUPAR_POR).agg(
             avg("Diagnostico").alias("media_diagnostico"),
             avg("Vacinado").alias("media_vacinado"),
             avg("Escolaridade").alias("media_escolaridade"),
-            avg("Populacao").alias("media_populacao")
+            avg("Populacao").alias("media_populacao"),
+            first("Data").alias("data"),
+            _sum("Vacinado").alias("total_vacinados")
         )
 
-        resultados = df_grouped.collect()
-
-        # Obter data e total_vacinados manualmente por CEP
-        dados_por_cep = defaultdict(list)
-        for dado in dados:
-            dados_por_cep[dado["CEP"]].append(dado)
-
-        payload = []
-        for row in resultados:
-            r = row.asDict()
-            cep = r["CEP"]
-            grupo = dados_por_cep.get(cep, [])
-
-            data_mais_comum = grupo[0]["Data"] if grupo else "01-01-2025"
-            total_vacinados = sum(p.get("Vacinado", 0) for p in grupo)
-
-            api_item = {
-                "CEP": cep,
-                "media_diagnostico": round(r["media_diagnostico"], 4),
-                "data": data_mais_comum,
-                "total_vacinados": total_vacinados
-            }
-            payload.append(api_item)
-
+        # Publicar no Kafka
+        for row in df_grouped.rdd.collect():
+            data_dict = row.asDict()
             producer.produce(
                 DEST_TOPIC,
-                json.dumps(r).encode("utf-8")
+                json.dumps(data_dict, ensure_ascii=False).encode("utf-8")
             )
 
-        # Envio para API
+        producer.flush()
+
+        # Enviar para API
+        payload = df_grouped.toJSON().map(lambda x: json.loads(x)).collect()
         if payload:
             try:
                 response = requests.post(API_URL, json=payload)
                 if response.status_code == 200:
-                    print("✅ Resultados enviados para API /agrupamento")
+                    print("======= Resultados enviados para API /agrupamento")
                 else:
-                    print(f"❌ Erro API: {response.status_code} - {response.text}")
+                    print(f"======= Erro API: {response.status_code} - {response.text}")
             except Exception as e:
-                print(f"❌ Falha ao enviar para API: {e}")
+                print(f"======== Falha ao enviar para API: {e}")
 
-        return len(resultados), len(dados)
+        return df_grouped.count(), len(messages)
 
     except Exception as e:
-        print(f"❌ Erro ao processar lote: {e}")
+        print(f"============= Erro ao processar lote: {e}")
         return 0, len(messages)
 
 def main():
@@ -94,9 +77,8 @@ def main():
     })
 
     producer = Producer({"bootstrap.servers": KAFKA_BOOTSTRAP_SERVERS})
-
     consumer.subscribe([SOURCE_TOPIC])
-    print(f"📦 Inscrito no tópico {SOURCE_TOPIC}")
+    print(f" Inscrito no tópico {SOURCE_TOPIC}")
 
     batch = []
     batch_size = 50
@@ -117,7 +99,7 @@ def main():
 
             if msg.error():
                 if msg.error().code() != KafkaError._PARTITION_EOF:
-                    print(f"❌ Kafka Error: {msg.error()}")
+                    print(f"======== Kafka Error: {msg.error()}")
                 continue
 
             batch.append(msg)
@@ -126,7 +108,6 @@ def main():
                 processed_count += processed
                 msg_count += total
                 batch = []
-                producer.flush()
                 consumer.commit(asynchronous=False)
 
     except KeyboardInterrupt:
