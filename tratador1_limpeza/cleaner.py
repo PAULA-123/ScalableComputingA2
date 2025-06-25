@@ -1,16 +1,11 @@
-import json
-import time
-from confluent_kafka import Consumer, Producer, KafkaError
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import col
+from pyspark.sql.functions import col, from_json
 from pyspark.sql.types import StructType, StructField, IntegerType, StringType
 
 KAFKA_BOOTSTRAP_SERVERS = "kafka:9092"
-GROUP_ID = "tratador_limpeza_group"
 SOURCE_TOPIC = "raw_secretary"
 DEST_TOPIC = "clean_secretary"
 
-# Schema robusto
 schema = StructType([
     StructField("Diagnostico", IntegerType(), True),
     StructField("Vacinado", IntegerType(), True),
@@ -30,66 +25,39 @@ def limpeza(df):
         (col("Data").isNotNull())
     )
 
-def process_batch(buffer, spark):
-    """
-    Processa um batch de registros usando Spark e retorna lista de JSON strings válidas.
-    """
-    df = spark.createDataFrame(buffer, schema=schema)
-    df_limpo = limpeza(df)
-    # Converter linhas para JSON
-    return df_limpo.rdd.map(lambda row: json.dumps(row.asDict())).collect()
+spark = SparkSession.builder.appName("tratador_limpeza").getOrCreate()
+spark.sparkContext.setLogLevel("ERROR")
 
-def main():
-    spark = SparkSession.builder.appName("tratador_limpeza").getOrCreate()
-    spark.sparkContext.setLogLevel("ERROR")
+# 1. Ler do Kafka (streaming)
+df_raw = (
+    spark.readStream.format("kafka")
+    .option("kafka.bootstrap.servers", KAFKA_BOOTSTRAP_SERVERS)
+    .option("subscribe", SOURCE_TOPIC)
+    .option("startingOffsets", "earliest")
+    .load()
+)
 
-    consumer = Consumer({
-        "bootstrap.servers": KAFKA_BOOTSTRAP_SERVERS,
-        "group.id": GROUP_ID,
-        "auto.offset.reset": "earliest",
-        "enable.auto.commit": False
-    })
-    producer = Producer({"bootstrap.servers": KAFKA_BOOTSTRAP_SERVERS})
+# 2. Valor do Kafka vem em "value" como bytes, converter para string
+df_json = df_raw.selectExpr("CAST(value AS STRING) as json_str")
 
-    consumer.subscribe([SOURCE_TOPIC])
-    print(f"🔍 Aguardando mensagens no tópico {SOURCE_TOPIC}...")
+# 3. Parsear JSON para colunas usando schema
+df_parsed = df_json.select(from_json("json_str", schema).alias("data")).select("data.*")
 
-    buffer = []
-    batch_size = 100
-    total = limpos = 0
+# 4. Aplicar limpeza
+df_limpo = limpeza(df_parsed)
 
-    try:
-        while True:
-            msg = consumer.poll(timeout=1.0)
-            if msg is None:
-                continue
-            if msg.error():
-                if msg.error().code() != KafkaError._PARTITION_EOF:
-                    print(f"❌ Erro Kafka: {msg.error()}")
-                continue
+# 5. Converter para JSON para enviar ao Kafka
+from pyspark.sql.functions import to_json, struct
+df_out = df_limpo.select(to_json(struct([df_limpo[x] for x in df_limpo.columns])).alias("value"))
 
-            try:
-                dado = json.loads(msg.value().decode('utf-8'))
-                buffer.append(dado)
-                total += 1
-            except Exception as e:
-                print(f"❌ JSON inválido: {e}")
+# 6. Gravar para Kafka (streaming sink)
+query = (
+    df_out.writeStream
+    .format("kafka")
+    .option("kafka.bootstrap.servers", KAFKA_BOOTSTRAP_SERVERS)
+    .option("topic", DEST_TOPIC)
+    .option("checkpointLocation", "/tmp/checkpoints/tratador_limpeza")  # ajuste caminho
+    .start()
+)
 
-            if len(buffer) >= batch_size:
-                mensagens = process_batch(buffer, spark)
-                for msg_json in mensagens:
-                    producer.produce(DEST_TOPIC, msg_json.encode('utf-8'))
-                limpos += len(mensagens)
-                producer.flush()
-                consumer.commit()
-                buffer = []
-
-    except KeyboardInterrupt:
-        print(f"\n✅ Finalizado. {limpos}/{total} mensagens válidas.")
-    finally:
-        producer.flush()
-        consumer.close()
-        spark.stop()
-
-if __name__ == "__main__":
-    main()
+query.awaitTermination()

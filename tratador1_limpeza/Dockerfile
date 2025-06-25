@@ -1,38 +1,31 @@
 FROM bitnami/spark:latest
 
-# 1. Executa como root temporariamente para configurações do sistema
 USER root
 
-# 2. Cria diretórios necessários com permissões adequadas
+# Instalar pacotes essenciais e librdkafka para Python confluent-kafka (se ainda usar)
 RUN install_packages apt-transport-https ca-certificates && \
-    mkdir -p /var/lib/apt/lists/partial && \
-    mkdir -p /var/cache/apt/archives/partial && \
-    chown -R 1001:1001 /var/lib/apt /var/cache/apt && \
-    chmod -R 775 /var/lib/apt /var/cache/apt
-
-# 3. Instala dependências do sistema
-RUN apt-get update && \
+    apt-get update && \
     apt-get install -y --no-install-recommends \
-    gcc \
-    g++ \
-    python3-dev \
-    librdkafka-dev \
-    build-essential \
+        gcc \
+        g++ \
+        python3-dev \
+        librdkafka-dev \
+        build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-# 4. Configura o ambiente de trabalho
 WORKDIR /app
 RUN chown -R 1001:1001 /app
 
-# 5. Volta para o usuário não-root padrão (1001)
 USER 1001
 
-# 6. Copia e instala dependências Python
+# Copia requirements.txt e instala dependências Python (incluindo pyspark)
 COPY --chown=1001:1001 requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 7. Copia o código fonte
+# Copia o código Python do cleaner
 COPY --chown=1001:1001 cleaner.py .
 
-# 8. Comando de execução
+# Spark Structured Streaming já tem o conector Kafka incluído no bitnami/spark,
+# mas certifique-se que pyspark no requirements.txt é compatível (ex: pyspark>=3.0).
+
 CMD ["spark-submit", "--master", "local[*]", "/app/cleaner.py"]
