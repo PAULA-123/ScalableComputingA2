@@ -25,7 +25,7 @@ def aguardar_kafka(host="kafka", port=9092, timeout=30):
 
 minLinhas = int(os.getenv("MIN_LINHAS", 50))
 maxLinhas = int(os.getenv("MAX_LINHAS", 75))
-INTERVALO_CICLO = float(os.getenv("INTERVALO_CICLO", 5.0))
+INTERVALO_CICLO = float(os.getenv("INTERVALO_CICLO", 4.0))
 
 KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092")
 
@@ -49,7 +49,7 @@ def gerar_data_aleatoria_na_semana():
     hoje = datetime.today()
     segunda = hoje - timedelta(days=hoje.weekday())
     dia = random.randint(0, 6)
-    return (segunda + timedelta(days=dia)).strftime("%d-%m-%Y")
+    return (segunda + timedelta(days=dia)).strftime("%Y-%m-%d")
 
 # ==================== Função para enviar mensagens para Kafka
 
@@ -100,10 +100,10 @@ def gerar_lote_secretaria(rows=None):
     for _ in range(rows):
         batch.append({
             "Diagnostico": random.choice([0, 1]),
-            "Vacinado": random.choice([0, 1]),
+            "Vacinado": 1 if random.random() < 0.75 else 0, 
             "CEP": random.choice(cep_regioes),
             "Escolaridade": random.randint(0, 5),
-            "Populacao": random.randint(1000, 1_000_000),
+            "Populacao": random.randint(1000, 10_000),
             "Data": gerar_data_aleatoria_na_semana()
         })
     kafka_send(TOPIC_SECRETARY, {"batch": batch})

@@ -49,12 +49,16 @@ class Regressao(BaseModel):
 class MediaMovel(BaseModel):
     Data: str
     media_movel: float
-
+##
 class EvolucaoVacinacao(BaseModel):
     Data: str
     total_vacinados: int
     total_populacao: int
     taxa_vacinacao: float
+
+class EvolucaoDiagnostico(BaseModel):
+    Data: str
+    total_diagnosticos: int
 
 # ==========================
 # DADOS EM MEMÓRIA
@@ -65,7 +69,9 @@ dados_correlacao: List[Correlacao] = []
 dados_desvios: List[Desvio] = []
 dados_regressao: List[Regressao] = []
 dados_media_movel: List[MediaMovel] = []
+#
 dados_evolucao_vacinacao: List[EvolucaoVacinacao] = []
+dados_evolucao_diagnostico: List[EvolucaoDiagnostico] = []
 
 # ==========================
 # ENDPOINTS PARA DASHBOARD
@@ -130,7 +136,7 @@ def post_media_movel(novos: List[MediaMovel]):
     global dados_media_movel
     dados_media_movel = novos
     return {"message": "✅ Média móvel atualizada"}
-
+#
 @app.get("/evolucao-vacinacao", response_model=List[EvolucaoVacinacao])
 def get_evolucao_vacinacao():
     return dados_evolucao_vacinacao
@@ -140,3 +146,13 @@ def post_evolucao_vacinacao(novos: List[EvolucaoVacinacao]):
     global dados_evolucao_vacinacao
     dados_evolucao_vacinacao = novos
     return {"message": "✅ Evolução da vacinação atualizada"}
+
+@app.get("/evolucao-diagnostico", response_model=List[EvolucaoDiagnostico])
+def get_evolucao_diagnostico():
+    return dados_evolucao_diagnostico
+
+@app.post("/evolucao-diagnostico")
+def post_evolucao_diagnostico(novos: List[EvolucaoDiagnostico]):
+    global dados_evolucao_diagnostico
+    dados_evolucao_diagnostico = novos
+    return {"message": "✅ Evolução de diagnosticados atualizada"}

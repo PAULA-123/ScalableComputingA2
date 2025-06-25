@@ -86,6 +86,14 @@ services:
     depends_on:
       kafka:
         condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1024M
+        reservations:
+          cpus: '0.5'
+          memory: 512M   
     networks:
       - kafka_net
 
@@ -98,18 +106,93 @@ services:
     depends_on:
       kafka:
         condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1024M
+        reservations:
+          cpus: '0.5'
+          memory: 512M   
     networks:
       - kafka_net
 
-  tratador4_agrupar_data:
+  tratador4_agrupar_m1:
     build:
       context: ./tratadores
-    command: t4_agrupar_data.py
+    command: t4_agrupar_m1.py
     environment:
       - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
     depends_on:
       kafka:
         condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    networks:
+      - kafka_net
+  tratador4_agrupar_m2:
+    build:
+      context: ./tratadores
+    command: t4_agrupar_m2.py
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+    depends_on:
+      kafka:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M   
+    networks:
+      - kafka_net
+
+  tratador4_agrupar_cep:
+    build:
+      context: ./tratadores
+    command: t4_agrupar_cep.py
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+    depends_on:
+      kafka:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M   
+    networks:
+      - kafka_net
+
+  tratador6_correlacao:
+    build:
+      context: ./tratadores
+    command: t6_correlacao.py
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+    depends_on:
+      kafka:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M  
     networks:
       - kafka_net
 
@@ -119,7 +202,7 @@ services:
     ports:
       - "${API_PORT}:8000"
     depends_on:
-      - tratador4_agrupar_data
+      - tratador4_agrupar_m1
     command: ["uvicorn", "api:app", "--host", "0.0.0.0", "--port", "8000"]
     restart: unless-stopped
     # volumes:

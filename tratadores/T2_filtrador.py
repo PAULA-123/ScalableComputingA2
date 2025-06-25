@@ -67,6 +67,7 @@ def process_batch(messages, spark, producer):
         if resultados:
             batch_payload = json.dumps({"batch": resultados})
             producer.produce(DEST_TOPIC, batch_payload.encode("utf-8"))
+            producer.flush()  # 🔁 garante envio imediato
             print(f"📤 Enviado batch com {len(resultados)} registros para '{DEST_TOPIC}'")
         else:
             print("[FILTRO] Nenhum registro válido para enviar")
@@ -76,8 +77,6 @@ def process_batch(messages, spark, producer):
     except Exception as e:
         print(f"❌ [FILTRO][ERRO] Falha ao processar lote: {e}")
         return 0, 0
-
-
 
 def main():
     print(f"🧪 [FILTRO] Iniciando... {SOURCE_TOPIC} → {DEST_TOPIC}")
@@ -126,7 +125,6 @@ def main():
                 filtrado, lidos = process_batch(batch, spark, producer)
                 total += lidos
                 filtrados += filtrado
-                producer.flush()
                 consumer.commit()
                 batch = []
 

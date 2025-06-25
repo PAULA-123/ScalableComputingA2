@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import requests
 import matplotlib.pyplot as plt
+import matplotlib.ticker as mtick
 
 st.set_page_config(
     page_title="📊 Dashboard de Métricas de Saúde",
@@ -23,7 +24,9 @@ endpoints = {
     "Desvios por Região (T7)": "/desvios",
     "Regressão Linear (T8)": "/regressao",
     "Média Móvel Diária (T9)": "/media-movel",
+
     "Evolução Vacinação (T10)": "/evolucao-vacinacao",
+    "Evolução de Diagnosticados": "/evolucao-diagnostico"
 
 }
 
@@ -139,7 +142,22 @@ if not df_evolucao.empty:
     fig, ax = plt.subplots()
     ax.plot(df_evolucao["Data"], df_evolucao["taxa_vacinacao"], marker='o', color='purple')
     ax.set_title("Taxa de Vacinação por Data")
-    ax.set_ylabel("Taxa")
+    ax.set_ylabel("Taxa (%)")
     ax.set_xlabel("Data")
+    ax.set_ylim(0, 1)  # força escala de 0% a 100%
+    ax.yaxis.set_major_formatter(mtick.PercentFormatter(xmax=1))  # converte para %
     ax.grid(True)
+    st.pyplot(fig)
+
+# ============================
+# 🧪 EVOLUÇÃO DE DIAGNOSTICADOS
+# ============================
+df_diag = carregar_dados(endpoints["Evolução de Diagnosticados"])
+if not df_diag.empty:
+    st.subheader("📈 Evolução de Diagnosticados")
+    st.dataframe(df_diag)
+
+    fig, ax = plt.subplots()
+    ax.plot(df_diag["Data"], df_diag["total_diagnosticos"], marker='o')
+    ax.set_title("Total de Diagnosticados por Dia")
     st.pyplot(fig)
