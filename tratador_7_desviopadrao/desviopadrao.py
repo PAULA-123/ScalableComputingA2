@@ -1,7 +1,6 @@
 import json
 import time
 import requests
-from typing import List, Dict
 from confluent_kafka import Consumer, KafkaError
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import stddev
@@ -20,36 +19,44 @@ schema = StructType([
     StructField("media_populacao", FloatType(), True)
 ])
 
-def calcular_desvios(df, enviar_api: bool = True) -> None:
-    print("\n📈 Desvios padrão das métricas:")
+def calcular_desvios(df, enviar_api=True):
+    print("\n Desvios padrão das métricas:")
     try:
-        # Agregação única e paralela
-        resultado = df.agg(
+        # Cálculo dos desvios paralelamente via Spark
+        df_desvios = df.agg(
             stddev("media_diagnostico").alias("media_diagnostico"),
             stddev("media_vacinado").alias("media_vacinado"),
             stddev("media_escolaridade").alias("media_escolaridade"),
             stddev("media_populacao").alias("media_populacao")
-        ).collect()[0]
+        )
 
-        desvios: List[Dict[str, float]] = [
-            {"variavel": nome, "desvio": round(valor, 4)}
-            for nome, valor in resultado.asDict().items()
-        ]
+        # Transformar diretamente em JSON Spark sem coletar
+        df_formatado = df_desvios.selectExpr(
+            "named_struct('variavel', 'media_diagnostico', 'desvio', round(media_diagnostico, 4)) as v1",
+            "named_struct('variavel', 'media_vacinado', 'desvio', round(media_vacinado, 4)) as v2",
+            "named_struct('variavel', 'media_escolaridade', 'desvio', round(media_escolaridade, 4)) as v3",
+            "named_struct('variavel', 'media_populacao', 'desvio', round(media_populacao, 4)) as v4"
+        ).selectExpr("v1", "v2", "v3", "v4") \
+         .selectExpr("stack(4, v1, v2, v3, v4) as desvios") \
+         .selectExpr("desvios.variavel as variavel", "desvios.desvio as desvio")
 
-        for d in desvios:
-            print(f"📌 {d['variavel']}: {d['desvio']:.4f}")
+        # Converter para JSON e enviar
+        payload = [json.loads(row_json) for row_json in df_formatado.toJSON().collect()]
+
+        for d in payload:
+            print(f"- {d['variavel']}: {d['desvio']:.4f}")
 
         if enviar_api:
-            response = requests.post(API_URL, json=desvios)
+            response = requests.post(API_URL, json=payload)
             if response.status_code == 200:
-                print("✅ Desvios enviados com sucesso para a API")
+                print(" Desvios enviados com sucesso para a API")
             else:
-                print(f"❌ Falha ao enviar para API: {response.status_code} - {response.text}")
+                print(f"======== Erro ao enviar para API: {response.status_code} - {response.text}")
 
     except Exception as e:
-        print(f"❌ Erro ao calcular ou enviar desvio padrão: {e}")
+        print(f"=========== Erro ao calcular ou enviar desvio padrão: {e}")
 
-def main() -> None:
+def main():
     spark = SparkSession.builder.appName("tratador_desvio").getOrCreate()
     spark.sparkContext.setLogLevel("ERROR")
 
@@ -61,7 +68,7 @@ def main() -> None:
     })
 
     consumer.subscribe([SOURCE_TOPIC])
-    print(f"📦 Inscrito no tópico {SOURCE_TOPIC}")
+    print(f" Inscrito no tópico {SOURCE_TOPIC}")
 
     registros = []
     try:
@@ -76,17 +83,17 @@ def main() -> None:
 
             if msg.error():
                 if msg.error().code() != KafkaError._PARTITION_EOF:
-                    print(f"❌ Erro Kafka: {msg.error()}")
+                    print(f"======== Erro Kafka: {msg.error()}")
                 continue
 
             try:
                 dado = json.loads(msg.value().decode("utf-8"))
                 registros.append(dado)
             except Exception as e:
-                print(f"❌ JSON inválido: {e}")
+                print(f"======== JSON inválido: {e}")
 
     except KeyboardInterrupt:
-        print("⏹️ Interrompido pelo usuário")
+        print(" Interrompido pelo usuário")
         if registros:
             df = spark.createDataFrame(registros, schema=schema)
             calcular_desvios(df)
