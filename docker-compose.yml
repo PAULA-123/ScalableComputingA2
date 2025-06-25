@@ -79,178 +79,39 @@ services:
 
   tratador1_limpeza:
     build:
-      context: ./tratador1_limpeza
+      context: ./tratadores
+    command: t1_limpeza.py
     environment:
-      - KAFKA_BOOTSTRAP_SERVERS=${KAFKA_SERVERS}
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
     depends_on:
       kafka:
         condition: service_healthy
-    restart: unless-stopped
-    # volumes:
-    #   - resultados:/app/databases_mock
-    deploy:
-      resources:
-        limits:
-          cpus: '0.5'
-          memory: 512M
-        reservations:
-          cpus: '0.25'
-          memory: 256M
     networks:
       - kafka_net
 
   tratador2_filtragem:
     build:
-      context: ./tratador2_filtragem
-    environment:
-      - KAFKA_BOOTSTRAP_SERVERS=${KAFKA_SERVERS}
-    depends_on:
-      kafka:
-        condition: service_healthy
-    restart: unless-stopped
-    # volumes:
-    #   - resultados:/app/databases_mock
-    deploy:
-      resources:
-        limits:
-          cpus: '0.5'
-          memory: 512M
-        reservations:
-          cpus: '0.25'
-          memory: 256M
-    networks:
-      - kafka_net
-
-  tratador_4_agrupar_colunas:
-    build:
-      context: ./tratador_4_agrupar_colunas
-    environment:
-      - KAFKA_BOOTSTRAP_SERVERS=${KAFKA_SERVERS}
-    depends_on:
-      kafka:
-        condition: service_healthy
-    restart: unless-stopped
-    # volumes:
-    #   - resultados:/app/databases_mock
-    deploy:
-      resources:
-        limits:
-          cpus: '0.5'
-          memory: 512M
-        reservations:
-          cpus: '0.25'
-          memory: 256M
-    networks:
-      - kafka_net
-
-  tratador_6_correlacao:
-    build:
-      context: ./tratador_6_correlacao
-    environment:
-      - KAFKA_BOOTSTRAP_SERVERS=${KAFKA_SERVERS}
-    depends_on:
-      kafka:
-        condition: service_healthy
-    restart: unless-stopped
-    # volumes:
-    #   - resultados:/app/databases_mock
-    deploy:
-      resources:
-        limits:
-          cpus: '0.5'
-          memory: 512M
-        reservations:
-          cpus: '0.25'
-          memory: 256M
-    networks:
-      - kafka_net
-
-  tratador_7_desviopadrao:
-    build:
-      context: ./tratador_7_desviopadrao
-    environment:
-      - KAFKA_BOOTSTRAP_SERVERS=${KAFKA_SERVERS}
-    depends_on:
-      kafka:
-        condition: service_healthy
-    restart: unless-stopped
-    # volumes:
-    #   - resultados:/app/databases_mock
-    deploy:
-      resources:
-        limits:
-          cpus: '0.5'
-          memory: 512M
-        reservations:
-          cpus: '0.25'
-          memory: 256M
-    networks:
-      - kafka_net
-
-  tratador_9_mediamovel:
-    build:
-      context: ./tratador_9_mediamovel
-    environment:
-      - KAFKA_BOOTSTRAP_SERVERS=${KAFKA_SERVERS}
-    depends_on:
-      kafka:
-        condition: service_healthy
-    restart: unless-stopped
-    # volumes:
-    #   - resultados:/app/databases_mock
-    deploy:
-      resources:
-        limits:
-          cpus: '0.5'
-          memory: 512M
-        reservations:
-          cpus: '0.25'
-          memory: 256M
-    networks:
-      - kafka_net
-
-  tratador8_regressao:
-    build:
-      context: ./tratador8_regressao
-    environment:
-      - KAFKA_BOOTSTRAP_SERVERS=${KAFKA_SERVERS}
-    depends_on:
-      kafka:
-        condition: service_healthy
-    restart: unless-stopped
-    # volumes:
-    #   - resultados:/app/databases_mock
-    deploy:
-      resources:
-        limits:
-          cpus: '0.5'
-          memory: 512M
-        reservations:
-          cpus: '0.25'
-          memory: 256M
-    networks:
-      - kafka_net
-
-  tratador-media:
-    build:
-      context: ./tratador_media
-    depends_on:
-      - kafka
+      context: ./tratadores
+    command: t2_filtrador.py
     environment:
       - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
-    volumes:
-      - ./databases_mock:/app/databases_mock 
-
-  tratador-merge:
-    build:
-      context: ./tratador_merge
     depends_on:
-      - kafka
+      kafka:
+        condition: service_healthy
+    networks:
+      - kafka_net
+
+  tratador4_agrupar_data:
+    build:
+      context: ./tratadores
+    command: t4_agrupar_data.py
     environment:
       - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
-    volumes:
-      - ./databases_mock:/app/databases_mock 
-      - ./volumes/checkpoints:/app/checkpoints
+    depends_on:
+      kafka:
+        condition: service_healthy
+    networks:
+      - kafka_net
 
   api:
     build:
@@ -258,7 +119,7 @@ services:
     ports:
       - "${API_PORT}:8000"
     depends_on:
-      - tratador8_regressao
+      - tratador4_agrupar_data
     command: ["uvicorn", "api:app", "--host", "0.0.0.0", "--port", "8000"]
     restart: unless-stopped
     # volumes:
@@ -293,9 +154,6 @@ services:
           memory: 256M
     networks:
       - kafka_net
-
-# volumes:
-#   resultados:
 
 networks:
   kafka_net:

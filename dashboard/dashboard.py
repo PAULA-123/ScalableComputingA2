@@ -22,7 +22,9 @@ endpoints = {
     "Correlação Escolaridade/Vacinação (T6)": "/correlacao",
     "Desvios por Região (T7)": "/desvios",
     "Regressão Linear (T8)": "/regressao",
-    "Média Móvel Diária (T9)": "/media-movel"
+    "Média Móvel Diária (T9)": "/media-movel",
+    "Evolução Vacinação (T10)": "/evolucao-vacinacao",
+
 }
 
 refresh = st.sidebar.button("🔄 Atualizar Tudo")
@@ -124,4 +126,20 @@ if not df_movel.empty:
     fig, ax = plt.subplots()
     ax.plot(df_movel["Data"], df_movel["media_movel"], marker='o')
     ax.set_title("Média Móvel de Diagnósticos Diários")
+    st.pyplot(fig)
+
+df_evolucao = carregar_dados(endpoints["Evolução Vacinação (T10)"])
+# ============================
+# 🧬 EVOLUÇÃO VACINAÇÃO (T10)
+# ============================
+if not df_evolucao.empty:
+    st.subheader("🧬 Evolução Histórica da Vacinação")
+    st.dataframe(df_evolucao)
+
+    fig, ax = plt.subplots()
+    ax.plot(df_evolucao["Data"], df_evolucao["taxa_vacinacao"], marker='o', color='purple')
+    ax.set_title("Taxa de Vacinação por Data")
+    ax.set_ylabel("Taxa")
+    ax.set_xlabel("Data")
+    ax.grid(True)
     st.pyplot(fig)

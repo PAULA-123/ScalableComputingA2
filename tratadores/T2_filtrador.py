@@ -1,3 +1,4 @@
+import os
 import json
 import time
 from confluent_kafka import Consumer, Producer, KafkaError
@@ -5,10 +6,11 @@ from pyspark.sql import SparkSession
 from pyspark.sql.functions import col
 from pyspark.sql.types import StructType, StructField, IntegerType, StringType
 
-KAFKA_BOOTSTRAP_SERVERS = "kafka:9092"
-GROUP_ID = "tratador_filtro_group"
-SOURCE_TOPIC = "clean_secretary"
-DEST_TOPIC = "filtered_secretary"
+# Leitura por variável de ambiente
+KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092")
+GROUP_ID = os.getenv("GROUP_ID", "tratador_filtro_group")
+SOURCE_TOPIC = os.getenv("SOURCE_TOPIC", "clean_secretary")
+DEST_TOPIC = os.getenv("DEST_TOPIC", "filtered_secretary")
 
 schema = StructType([
     StructField("Diagnostico", IntegerType(), True),
@@ -36,27 +38,50 @@ def coerir_para_int(dado, chave):
 
 def process_batch(messages, spark, producer):
     try:
-        dados = [json.loads(msg.value().decode("utf-8")) for msg in messages]
+        dados = []
+        for msg in messages:
+            try:
+                payload = json.loads(msg.value().decode("utf-8"))
+                batch = payload.get("batch", [])
+                dados.extend(batch)
+            except Exception as e:
+                print(f"⚠️ [FILTRO] Erro ao decodificar mensagem: {e}")
+
+        print(f"\n📥 [FILTRO] {len(dados)} registros recebidos no total")
+
+        for i, d in enumerate(dados[:3]):
+            print(f"🔍 Registro bruto #{i+1}: {d}")
 
         for d in dados:
             for campo in ["Diagnostico", "Vacinado", "CEP", "Escolaridade", "Populacao"]:
                 coerir_para_int(d, campo)
 
         df = spark.createDataFrame(dados, schema=schema)
+        print(f"🔎 Antes da filtragem: {df.count()} registros")
+
         df_filtrado = filtrar_spark(df)
-        resultados = df_filtrado.rdd.map(lambda row: json.dumps(row.asDict())).collect()
+        print(f"✅ Após filtragem: {df_filtrado.count()} registros válidos")
 
-        for r in resultados:
-            producer.produce(DEST_TOPIC, r.encode("utf-8"))
+        resultados = df_filtrado.rdd.map(lambda row: row.asDict()).collect()
 
-        print(f"[FILTRO] Batch de {len(dados)} processado → {len(resultados)} válidos para '{DEST_TOPIC}'")
+        if resultados:
+            batch_payload = json.dumps({"batch": resultados})
+            producer.produce(DEST_TOPIC, batch_payload.encode("utf-8"))
+            print(f"📤 Enviado batch com {len(resultados)} registros para '{DEST_TOPIC}'")
+        else:
+            print("[FILTRO] Nenhum registro válido para enviar")
+
         return len(resultados), len(dados)
 
     except Exception as e:
-        print(f"[FILTRO][ERRO] Processamento do lote: {e}")
-        return 0, len(messages)
+        print(f"❌ [FILTRO][ERRO] Falha ao processar lote: {e}")
+        return 0, 0
 
-def consumir_clean_secretary():
+
+
+def main():
+    print(f"🧪 [FILTRO] Iniciando... {SOURCE_TOPIC} → {DEST_TOPIC}")
+
     spark = SparkSession.builder \
         .appName("tratador_filtragem") \
         .config("spark.driver.memory", "512m") \
@@ -73,7 +98,6 @@ def consumir_clean_secretary():
     producer = Producer({"bootstrap.servers": KAFKA_BOOTSTRAP_SERVERS})
 
     consumer.subscribe([SOURCE_TOPIC])
-    print(f"[FILTRO] Subscrito ao tópico {SOURCE_TOPIC}")
 
     try:
         batch_size = 50
@@ -108,16 +132,13 @@ def consumir_clean_secretary():
 
     except KeyboardInterrupt:
         duracao = time.time() - inicio
-        print(f"📊 [FILTRO] Finalizado: {filtrados}/{total} registros válidos em {duracao:.2f}s")
+        print(f"\n📊 [FILTRO] Finalizado: {filtrados}/{total} registros válidos em {duracao:.2f}s")
     finally:
         try:
             consumer.close()
-        except Exception as e:
-            print(f"[FILTRO][ERRO] ao fechar consumer: {e}")
-        try:
             spark.stop()
         except Exception as e:
-            print(f"[FILTRO][ERRO] ao fechar Spark: {e}")
+            print(f"[FILTRO][ERRO] Encerrando: {e}")
 
 if __name__ == "__main__":
-    consumir_clean_secretary()
+    main()

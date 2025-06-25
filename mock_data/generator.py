@@ -3,13 +3,29 @@ from datetime import datetime, timedelta
 import os
 import json
 import time
+import socket
 from confluent_kafka import Producer
+
+# ==================== Aguardar Kafka ====================
+
+def aguardar_kafka(host="kafka", port=9092, timeout=30):
+    print(f"⏳ Aguardando Kafka em {host}:{port}...", flush=True)
+    inicio = time.time()
+    while True:
+        try:
+            with socket.create_connection((host, port), timeout=2):
+                print(f"✅ Kafka disponível em {host}:{port}", flush=True)
+                return
+        except OSError:
+            if time.time() - inicio > timeout:
+                raise TimeoutError(f"❌ Kafka não respondeu após {timeout} segundos")
+            time.sleep(1)
 
 # ==================== Configurações ====================
 
 minLinhas = int(os.getenv("MIN_LINHAS", 50))
 maxLinhas = int(os.getenv("MAX_LINHAS", 75))
-INTERVALO_CICLO = float(os.getenv("INTERVALO_CICLO", 0.2))
+INTERVALO_CICLO = float(os.getenv("INTERVALO_CICLO", 5.0))
 
 KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092")
 
@@ -17,12 +33,7 @@ TOPIC_OMS = os.getenv("TOPIC_OMS", "raw_oms_batch")
 TOPIC_HOSPITAL = os.getenv("TOPIC_HOSPITAL", "raw_hospital")
 TOPIC_SECRETARY = os.getenv("TOPIC_SECRETARY", "raw_secretary")
 
-
-TOPIC_HOSPITAL_b = os.getenv("TOPIC_HOSPITAL_b", "raw_hospital_b")
-TOPIC_SECRETARY_b = os.getenv("TOPIC_SECRETARY_b", "raw_secretary_b")
-
-producer = Producer({"bootstrap.servers": KAFKA_BOOTSTRAP_SERVERS})
-
+producer = None
 FLUSH = True
 
 # ==================== CEPs ====================
@@ -46,45 +57,29 @@ def kafka_send(topic, data):
     producer.produce(topic, json.dumps(data).encode('utf-8'))
     producer.flush()
 
-# ==================== OMS ====================
+# ==================== Geração de dados ====================
 
-def oms_generate_mock_batch(rows=None, output_file="databases_mock/oms_mock.json"):
+def gerar_lote_oms(rows=None):
     rows = rows or random.randint(minLinhas, maxLinhas)
-    batch_size = rows  # ou: random.randint(100, 300)
-    
-    dados = []
     batch = []
-
-    for i in range(rows):
+    for _ in range(rows):
         populacao = random.randint(1000, 1_000_000)
-        registro = {
+        batch.append({
             "N_obitos": random.randint(0, 1000),
             "Populacao": populacao,
             "CEP": random.choice(cep_ilhas),
             "N_recuperados": random.randint(0, 5000),
             "N_vacinados": random.randint(0, populacao),
             "Data": gerar_data_aleatoria_na_semana()
-        }
-        dados.append(registro)
-        batch.append(registro)
+        })
+    kafka_send(TOPIC_OMS, {"batch": batch})
+    print(f"[OMS] {rows} registros enviados para '{TOPIC_OMS}'", flush=FLUSH)
 
-    mensagem = {"batch": batch}
-    kafka_send(TOPIC_OMS, mensagem)
-
-    print(f"[OMS] {rows} registros enviados em batch de tamanho {batch_size} para '{TOPIC_OMS}'", flush=FLUSH)
-
-
-
-# ==================== HOSPITAL ====================
-
-def hospital_generate_mock_batch(rows=None, output_file="databases_mock/hospital_mock.json"):
-    # manda mensagem por batch
+def gerar_lote_hospital(rows=None):
     rows = random.randint(minLinhas, maxLinhas)
-    dados = []
-
+    batch = []
     for _ in range(rows):
-
-        registro = {
+        batch.append({
             "ID_Hospital": random.randint(1, 5),
             "Data": gerar_data_aleatoria_na_semana(),
             "Internado": random.choice([0, 1]),
@@ -94,89 +89,34 @@ def hospital_generate_mock_batch(rows=None, output_file="databases_mock/hospital
             "Sintoma1": random.randint(0, 1),
             "Sintoma2": random.randint(0, 1),
             "Sintoma3": random.randint(0, 1),
-            "Sintoma4": random.randint(0, 1),
-        }
+            "Sintoma4": random.randint(0, 1)
+        })
+    kafka_send(TOPIC_HOSPITAL, {"batch": batch})
+    print(f"[HOSPITAL] {rows} registros enviados para '{TOPIC_HOSPITAL}'", flush=FLUSH)
 
-        dados.append(registro)
-
-    mensagem = {"batch": dados}
-    kafka_send(TOPIC_HOSPITAL_b, mensagem)
-    print(f"[HOSPITAL] {rows} registros enviados para tópico '{TOPIC_HOSPITAL_b}'", flush=FLUSH)
-
-def hospital_generate_mock(rows=None, output_file="databases_mock/hospital_mock.json"):
+def gerar_lote_secretaria(rows=None):
     rows = random.randint(minLinhas, maxLinhas)
-    dados = []
+    batch = []
     for _ in range(rows):
-        registro = {
-            "ID_Hospital": random.randint(1, 5),
-            "Data": gerar_data_aleatoria_na_semana(),
-            "Internado": random.choice([0, 1]),
-            "Idade": random.randint(0, 100),
-            "Sexo": random.choice([0, 1]),
-            "CEP": random.choice(cep_regioes),
-            "Sintoma1": random.randint(0, 1),
-            "Sintoma2": random.randint(0, 1),
-            "Sintoma3": random.randint(0, 1),
-            "Sintoma4": random.randint(0, 1),
-        }
-        dados.append(registro)
-        kafka_send(TOPIC_HOSPITAL, registro)
-    os.makedirs(os.path.dirname(output_file), exist_ok=True)
-    with open(output_file, "w", encoding="utf-8") as f:
-        json.dump(dados, f, indent=4, ensure_ascii=False)
-    print(f"[HOSPITAL] {rows} registros enviados para tópico '{TOPIC_HOSPITAL}'")
-
-# ==================== SECRETARIA ====================
-
-def secretary_generate_mock_batch(rows=None, output_file="databases_mock/secretary_mock.json"):
-    rows = rows or random.randint(minLinhas, maxLinhas)
-    dados = []
-
-    for _ in range(rows):
-        registro = {
+        batch.append({
             "Diagnostico": random.choice([0, 1]),
             "Vacinado": random.choice([0, 1]),
             "CEP": random.choice(cep_regioes),
             "Escolaridade": random.randint(0, 5),
             "Populacao": random.randint(1000, 1_000_000),
             "Data": gerar_data_aleatoria_na_semana()
-        }
-        dados.append(registro)
-
-    mensagem = {"batch": dados}
-    kafka_send(TOPIC_SECRETARY_b, mensagem)
-    print(f"[SECRETARIA] {rows} registros enviados para tópico '{TOPIC_SECRETARY_b}'")
-
-def secretary_generate_mock(rows=None, output_file="databases_mock/secretary_mock.json"):
-    rows = rows or random.randint(minLinhas, maxLinhas)
-    dados = []
-    for _ in range(rows):
-        registro = {
-            "Diagnostico": random.choice([0, 1]),
-            "Vacinado": random.choice([0, 1]),
-            "CEP": random.choice(cep_regioes),
-            "Escolaridade": random.randint(0, 5),
-            "Populacao": random.randint(1000, 1_000_000),
-            "Data": gerar_data_aleatoria_na_semana()
-        }
-        dados.append(registro)
-        kafka_send(TOPIC_SECRETARY, registro)
-    os.makedirs(os.path.dirname(output_file), exist_ok=True)
-    with open(output_file, "w", encoding="utf-8") as f:
-        json.dump(dados, f, indent=4, ensure_ascii=False)
-    print(f"[SECRETARIA] {rows} registros enviados para tópico '{TOPIC_SECRETARY}'")
+        })
+    kafka_send(TOPIC_SECRETARY, {"batch": batch})
+    print(f"[SECRETARIA] {rows} registros enviados para '{TOPIC_SECRETARY}'", flush=FLUSH)
 
 # ==================== LOOP PRINCIPAL ====================
 
 if __name__ == "__main__":
-    os.makedirs("databases_mock", exist_ok=True)
-    print("Mock generator rodando em loop contínuo (CTRL+C para parar)\n")
-    ciclo = 0
+    print("🚀 Mock generator rodando em loop contínuo (CTRL+C para parar)", flush=True)
+    aguardar_kafka()
+    producer = Producer({"bootstrap.servers": KAFKA_BOOTSTRAP_SERVERS})
     while True:
-        ciclo += 1
-        # print(f"=== CICLO {ciclo} INICIADO ===", flush=FLUSH)
-        # oms_generate_mock_batch()
-        secretary_generate_mock_batch()
-        hospital_generate_mock_batch()
-        # print(f"=== CICLO {ciclo} COMPLETO, dormindo {INTERVALO_CICLO}s ===\n", flush=FLUSH)
+        gerar_lote_secretaria()
+        gerar_lote_oms()
+        gerar_lote_hospital()
         time.sleep(INTERVALO_CICLO)
