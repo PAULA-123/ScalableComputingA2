@@ -1,0 +1,198 @@
+\documentclass[a4paper,12pt]{article}
+
+% Pacotes úteis
+\usepackage[utf8]{inputenc}       % Codificação UTF-8
+\usepackage[T1]{fontenc}          % Suporte para acentuação
+\usepackage{lmodern}              % Fonte moderna
+\usepackage{graphicx}             % Para inclusão de imagens
+\usepackage{amsmath}              % Pacote de matemática
+\usepackage{amssymb}              % Símbolos matemáticos
+\usepackage{geometry}             % Controle das margens
+\usepackage{setspace}             % Controle de espaçamento
+\usepackage{indentfirst}          % Indentar primeiro parágrafo de cada seção
+\usepackage{hyperref}             % Links clicáveis
+\usepackage{float}                % Controle de posição de elementos flutuantes (figuras, tabelas)
+\usepackage{titlesec}             % Personalização de títulos
+         % Para imagens (caso use)
+\usepackage{xcolor}           % Para cores nos textos (opcional)
+\usepackage{listings}         % Para código C++ (se for incluir trechos)
+
+
+
+
+\documentclass{article}
+\usepackage{minted}
+
+% Configurações opcionais para personalizar
+\setminted{
+    breaklines=true,      % Quebra automaticamente linhas longas
+    breakanywhere=true,   % Permite quebrar palavras (opcional)
+    frame=lines,          % Adiciona linhas ao redor do código
+    fontsize=\small,      % Tamanho da fonte
+    breaklines=true,
+    breaksymbol=,         % Adiciona um símbolo (opcional)
+    breakindent=10pt       % Indenta as linhas quebradas
+}
+
+
+
+% Configurações de página
+% \geometry{left=3cm, right=2cm, top=2cm, bottom=2cm}
+% \onehalfspacing                      % Espaçamento de 1,5 entre linhas
+
+% % Cabeçalho com título e autores
+% \title{Avaliação de LLM's na extração de dados médicos de notas clínicas}
+% \author{
+%     Ana Júlia Amaro Pereira Rocha \\ 
+%     Maria Eduarda Mesquita Magalhães\\ 
+%     Mariana Fernandes Rocha \\ 
+%     Paula Eduarda de Lima \\
+%     \\ Orientador: Walter Sande
+% }
+% \date{\today}                         % Data do relatório
+
+% \begin{document}
+
+% \documentclass[12pt,a4paper]{report}
+\usepackage{graphicx}
+\usepackage{titling}
+
+\documentclass[a4paper,12pt]{article}
+
+\usepackage[portuguese]{babel} % Ativa o português para hifenização
+\usepackage[utf8]{inputenc}    % Suporte a caracteres acentuados
+\usepackage[T1]{fontenc}       % Fonte com suporte a caracteres especiais
+\usepackage{xcolor}
+\usepackage[ colorlinks=true, linkcolor=blue,     urlcolor=blue,  citecolor=blue ]{hyperref}
+\begin{document}
+
+\begin{titlepage}
+    \begin{center}
+
+        \vspace{1cm}
+        \begin{minipage}{0.45\textwidth}
+            \centering
+            \includegraphics[width=1.2\textwidth]{logo_fgv.png}    
+        \end{minipage}
+        \vspace{2cm}
+
+        \rule{1\textwidth}{0.4pt} \\ % Linha horizontal personalizada
+        \vspace{0.3cm}
+        {\Huge \textbf{Plataforma de Monitoramento Epidemiológico em Tempo Real e Histórico}} \\
+        \vspace{0.2cm}
+        \vspace{0.5cm}\\
+        {\Large \textbf{A2 Computação Escalável}}\\
+        \rule{1\textwidth}{0.4pt} % Linha horizontal personalizada
+
+
+        \vspace{0.5cm}
+        {\Large \textbf{FGV EMAp}} \\
+        \vspace{2cm}
+        
+        
+
+        
+        
+        % % Unidade e curso
+        % {\Large \textbf{FGV EMAp}}\\[2cm]
+        
+        % Autores
+        {\large 
+            \textbf{Ana Júlia Amaro Pereira Rocha} \\ 
+            \textbf{Henrique Borges Carvalho} \\
+            \textbf{Maria Eduarda Mesquita Magalhães}\\
+            \textbf{Mariana Fernandes Rocha} \\
+            \textbf{Paula Eduarda de Lima}}\\[1.5cm]
+        
+        % Informações adicionais
+        {\large 
+            Ciência de Dados e Inteligência Artificial \\ 
+            5º Período}\\[2cm]
+        
+         % Data
+        \vfill
+        {\large Rio de Janeiro, 2025}
+
+        
+    \end{center}
+\end{titlepage}
+
+\tableofcontents
+\newpage
+
+
+\section{Introdução}
+
+\section{Modelagem}
+
+
+\section{Mock}
+
+As fontes de dados serão simulações de hospitais,  Secretaria de Saúde (SS) e Organização Mundial da Saúde (OMS). Receberemos conjuntos de dados advindos dessas fontes semanalmente. Além disso, temos dois tipos de segmentação regional: Ilhas, mais geral, e regiões, que são segmentações das ilhas, mais especifíco. A simulação apresenta 20 ilhas, cada uma identificada por um CEP de 2 dígitos, cada ilha tem 5 regiões, com CEPs de 5 dígitos, sendo os dois primeiros dígitos o CEP da ilha (ex: ilha 12 $\rightarrow$ regiões 12001 a 12005).
+
+
+O objeto Mock é feito em python e implementa a criação de três tipos de tabelas diferes: SQLite, csv e txt.
+\vspace{0.5cm}
+
+\textbf{Fontes e dados gerados}
+
+\begin{itemize}
+    \item \textcolor{purple}{\textbf{OMS (\texttt{oms\_mock.txt})}}\\
+    Dados agregados por ilha (CEP de 2 dígitos).\\
+    Inclui número de óbitos, população, recuperados, vacinados e data.\\
+    Gerado em formato \texttt{.txt} com tabulações.
+    
+    \vspace{0.5em}
+    
+    \item \textcolor{red}{\textbf{Hospitais (\texttt{hospital\_mock\_*.csv})}}\\
+    Dados individuais por paciente, com CEPs de 5 dígitos (regiões).\\
+    Contém informações como internação, idade, sexo, sintomas e data.\\
+    Gera múltiplos arquivos \texttt{.csv}, simulando diferentes hospitais.
+    
+    \vspace{0.5em}
+    
+    \item \textcolor{orange}{\textbf{Secretaria de Saúde (\texttt{secretary\_data.db})}}\\
+    Banco de dados SQLite com tabela \texttt{pacientes}.\\
+    Dados por região (CEP de 5 dígitos): diagnóstico, vacinação, escolaridade, população e data.\\
+    Registros inseridos diretamente em um banco relacional.
+\end{itemize}
+
+
+\section{Tratadores}
+
+
+\section{Dashboard}
+
+
+\subsection*{Exemplos na prática}
+
+% mostra imagens exemplo
+
+\section{Pipeline}
+
+\subsubsection*{Pontos fortes da abordagem}
+
+
+\begin{itemize}
+    \item 
+\end{itemize}
+
+\subsubsection*{Pontos fracos da abordagem}
+
+\begin{itemize}
+    \item 
+\end{itemize}
+
+\subsection*{Tratamento}
+\subsubsection*{Pontos fortes específicos da abordagem}
+
+\subsubsection*{Pontos fracos específicos da abordagem}
+
+
+\section{Análise de tempo de execução}
+
+\begin{figure}[H]
+\end{figure}
+
+
+\end{document}
