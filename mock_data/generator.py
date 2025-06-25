@@ -104,7 +104,7 @@ def hospital_generate_mock_batch(rows=None, output_file="databases_mock/hospital
     print(f"[HOSPITAL] {rows} registros enviados para tópico '{TOPIC_HOSPITAL_b}'", flush=FLUSH)
 
 def hospital_generate_mock(rows=None, output_file="databases_mock/hospital_mock.json"):
-    rows = rows or 100
+    rows = random.randint(minLinhas, maxLinhas)
     dados = []
     for _ in range(rows):
         registro = {
