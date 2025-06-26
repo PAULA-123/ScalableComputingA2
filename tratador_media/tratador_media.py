@@ -68,7 +68,7 @@ def main():
             msg = consumer.poll(timeout=5.0)
 
             if msg is None:
-                print("[DEBUG] Nenhuma mensagem recebida. Verificando tópico...")
+                # print("[DEBUG] Nenhuma mensagem recebida. Verificando tópico...")
                 continue
 
             if msg.error():
@@ -91,37 +91,45 @@ def main():
         print("Recursos liberados")
 
 def process_message(msg, spark):
-    payload = json.loads(msg.value().decode('utf-8'))
-    print(f"[DEBUG] Mensagem recebida: {payload.keys()}")
+    import traceback
 
-    if "batch" not in payload:
-        print("[AVISO] Mensagem sem campo 'batch'")
+    # Decodifica a mensagem recebida
+    raw = msg.value().decode("utf-8")
+    payload = json.loads(raw)
+
+    registros = payload.get("batch", [])
+    source = payload.get("source", "")
+    msg_type = payload.get("type", "normal")  # padrão
+
+    if not registros:
+        print("[AVISO] Mensagem sem registros no campo 'batch'")
         return
 
-    batch = payload["batch"]
-    print(f"[PROCESSAMENTO] Batch com {len(batch)} registros")
-
-    df_processed = process_batch(batch, spark)
+    df_processed = process_batch(registros, spark)
     if df_processed is None:
+        print("[ERRO] Falha ao processar o batch")
         return
 
     resultado = [row.asDict() for row in df_processed.collect()]
 
-    # Salvar sem sobrescrever
+    # Salvar resultado no JSON de forma segura
     try:
         os.makedirs(OUTPUT_DIR, exist_ok=True)
 
+        conteudo_antigo = []
         if os.path.exists(OUTPUT_FILE):
             with open(OUTPUT_FILE, "r", encoding="utf-8") as f:
-                conteudo_antigo = json.load(f)
-                if not isinstance(conteudo_antigo, list):
-                    print("[ERRO] Conteúdo antigo não é uma lista JSON. Sobrescrevendo.")
+                try:
+                    conteudo_antigo = json.load(f)
+                    if not isinstance(conteudo_antigo, list):
+                        print("[ERRO] Conteúdo antigo não é uma lista JSON. Será sobrescrito.")
+                        conteudo_antigo = []
+                except json.JSONDecodeError:
+                    print("[ERRO ARQUIVO] JSON inválido anterior. Será sobrescrito.")
                     conteudo_antigo = []
-        else:
-            conteudo_antigo = []
 
+        # Junta e salva corretamente
         conteudo_antigo.extend(resultado)
-
         with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
             json.dump(conteudo_antigo, f, indent=4, ensure_ascii=False)
 
@@ -129,10 +137,9 @@ def process_message(msg, spark):
 
     except Exception as e:
         print(f"[ERRO ARQUIVO] Falha ao salvar JSON: {str(e)}")
-        import traceback
         traceback.print_exc()
 
-    # Enviar para API
+    # Enviar para a API
     try:
         response = requests.post(API_URL, json=resultado, timeout=5)
         response.raise_for_status()
