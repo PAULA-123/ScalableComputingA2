@@ -61,13 +61,15 @@ def agrupar_por_cep(df, origem):
         )
 
 def processar(dados, origem, spark, producer):
+    print(f"🔄 Iniciando processamento para: {origem} ({len(dados)} registros)")
     schema = schema_secretary if origem == "secretary" else schema_hospital
     df = spark.createDataFrame(dados, schema=schema)
     df_grouped = agrupar_por_cep(df, origem)
+
     json_batch = df_grouped.toJSON().map(lambda x: json.loads(x)).collect()
 
     if not json_batch:
-        print(f"[{origem.upper()}] Nenhum grupo gerado, nada enviado.")
+        print(f"[{origem.upper()}] ❌ Nenhum grupo gerado, nada enviado.")
         return
 
     destino = DEST_TOPIC_SECRETARY if origem == "secretary" else DEST_TOPIC_HOSPITAL
@@ -77,11 +79,13 @@ def processar(dados, origem, spark, producer):
         "type": "normal"
     })
 
+    print(f"📤 Enviando batch com {len(json_batch)} grupos para Kafka ({destino})")
     producer.produce(destino, payload.encode("utf-8"))
     producer.flush()
-    print(f"[{origem.upper()}] Batch com {len(json_batch)} grupos enviado para {destino}")
+    print(f"[{origem.upper()}] ✅ Envio concluído.")
 
 def main():
+    print("🚀 Iniciando tratador de agrupamento com Spark + Kafka")
     spark = SparkSession.builder.appName("tratador_agrupamento_2fontes").getOrCreate()
     spark.sparkContext.setLogLevel("ERROR")
 
@@ -95,6 +99,7 @@ def main():
     producer = Producer({"bootstrap.servers": KAFKA_BOOTSTRAP_SERVERS})
 
     consumer.subscribe([TOPIC_SECRETARY_H, TOPIC_HOSPITAL_H, TOPIC_SECRETARY, TOPIC_HOSPITAL])
+    print(f"📡 Subscrito aos tópicos: {TOPIC_SECRETARY_H}, {TOPIC_HOSPITAL_H}, {TOPIC_SECRETARY}, {TOPIC_HOSPITAL}")
 
     buffer_secretary = []
     buffer_hospital = []
@@ -112,7 +117,10 @@ def main():
                 continue
 
             try:
-                conteudo = json.loads(msg.value().decode("utf-8"))
+                conteudo_raw = msg.value().decode("utf-8")
+                print(f"\n📥 Mensagem Kafka recebida: {conteudo_raw[:120]}...")  # Preview
+                conteudo = json.loads(conteudo_raw)
+
                 tipo = conteudo.get("type", "normal")
                 dados = conteudo.get("batch", [])
                 origem = conteudo.get("source", "")
@@ -120,9 +128,10 @@ def main():
                 if origem == "secretary":
                     if tipo == "dados":
                         buffer_secretary.extend(dados)
-                        print(f"[SECRETARY HIST] +{len(dados)} registros acumulados")
+                        print(f"[SECRETARY HIST] +{len(dados)} registros acumulados (total={len(buffer_secretary)})")
                     elif tipo == "fim_historico":
                         fim_secretary = True
+                        print("[SECRETARY HIST] 🔚 Sinal de fim de histórico recebido")
                     elif tipo == "normal":
                         print(f"[SECRETARY NORMAL] {len(dados)} registros recebidos")
                         processar(dados, "secretary", spark, producer)
@@ -131,38 +140,39 @@ def main():
                 elif origem == "hospital":
                     if tipo == "dados":
                         buffer_hospital.extend(dados)
-                        print(f"[HOSPITAL HIST] +{len(dados)} registros acumulados")
+                        print(f"[HOSPITAL HIST] +{len(dados)} registros acumulados (total={len(buffer_hospital)})")
                     elif tipo == "fim_historico":
                         fim_hospital = True
+                        print("[HOSPITAL HIST] 🔚 Sinal de fim de histórico recebido")
                     elif tipo == "normal":
                         print(f"[HOSPITAL NORMAL] {len(dados)} registros recebidos")
                         processar(dados, "hospital", spark, producer)
                         consumer.commit(asynchronous=False)
 
-                # Se fim do histórico, processa lote acumulado
                 if fim_secretary:
-                    print("[PROCESSAMENTO] Histórico completo da secretaria")
+                    print("🧮 [PROCESSAMENTO] Histórico completo da secretaria")
                     processar(buffer_secretary, "secretary", spark, producer)
                     buffer_secretary.clear()
                     fim_secretary = False
                     consumer.commit(asynchronous=False)
 
                 if fim_hospital:
-                    print("[PROCESSAMENTO] Histórico completo do hospital")
+                    print("🧮 [PROCESSAMENTO] Histórico completo do hospital")
                     processar(buffer_hospital, "hospital", spark, producer)
                     buffer_hospital.clear()
                     fim_hospital = False
                     consumer.commit(asynchronous=False)
 
             except Exception as e:
-                print(f"[ERRO] Falha no processamento da mensagem: {e}")
+                print(f"[ERRO] ❌ Falha no processamento da mensagem: {e}")
 
     except KeyboardInterrupt:
-        print("Interrupção manual detectada. Encerrando...")
+        print("⛔ Interrupção manual detectada. Encerrando...")
     finally:
         consumer.close()
         producer.flush()
         spark.stop()
+        print("🧹 Finalização completa do tratador.")
 
 if __name__ == "__main__":
     main()
