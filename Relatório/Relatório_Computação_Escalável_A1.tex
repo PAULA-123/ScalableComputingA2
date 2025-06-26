@@ -368,6 +368,14 @@ O campo \texttt{Data}, inicialmente em formato de string (\texttt{dd-MM-yyyy}), 
 
 O valor da média móvel para a data mais recente é extraído e enviado para uma API REST (\texttt{/media-movel}) para posterior visualização no dashboard. Este tratador permite, portanto, detectar padrões de crescimento ou queda nos diagnósticos com maior robustez estatística frente a variações esporádicas.
 
+\subsubsection*{Pontos fortes específicos da abordagem}
+
+A arquitetura modular dos tratadores permite escalabilidade, paralelismo e flexibilidade no processamento de dados heterogêneos em diferentes estágios do pipeline. A divisão clara de responsabilidades — como limpeza, filtragem, agregações, cálculos estatísticos e inferência — favorece a manutenção e facilita reprocessamentos ou substituição de módulos de forma isolada. O uso intensivo de Apache Spark, tanto em modo \textit{batch} quanto \textit{streaming}, garante desempenho mesmo com grandes volumes de dados. A padronização da comunicação entre módulos via Kafka possibilita desacoplamento, tolerância a falhas e compatibilidade com arquiteturas distribuídas reais. Além disso, a presença de tratadores analíticos como os de regressão, correlação e média móvel permite que o pipeline vá além da ingestão e se torne uma ferramenta de suporte à decisão baseada em dados.
+
+
+\subsubsection*{Pontos fracos específicos da abordagem}
+
+Apesar da robustez e escalabilidade, a abordagem adotada apresenta desafios de complexidade operacional. O elevado número de tratadores exige orquestração cuidadosa para garantir a ordem e a integridade no fluxo de dados, aumentando o custo de manutenção e depuração. Além disso, muitos módulos operam de forma independente, o que pode dificultar o rastreamento de erros e o controle de versões intermediárias dos dados. Por fim, embora o Spark ofereça ótimo desempenho, ele requer recursos computacionais elevados, e sua configuração incorreta pode comprometer a performance e gerar latências inesperadas.
 
 
 
@@ -479,7 +487,6 @@ Essa arquitetura baseada em containers facilita a implantação, escalabilidade 
 
 \section{Ambiente Nuvem - AWS}
 
-\subsection*{Exemplos na prática}
 
 \section{Pipeline}
 
@@ -490,16 +497,14 @@ Essa arquitetura baseada em containers facilita a implantação, escalabilidade 
     \label{fig:pipeline}
 \end{figure}
 
+\subsection*{Exemplos na prática}
 
 \subsubsection*{Pontos fortes da abordagem}
 
 \subsubsection*{Pontos fracos da abordagem}
 
-\subsection*{Tratamento}
 
-\subsubsection*{Pontos fortes específicos da abordagem}
 
-\subsubsection*{Pontos fracos específicos da abordagem}
 
 \section{Análise de tempo de execução}
 

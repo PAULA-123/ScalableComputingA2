@@ -23,9 +23,12 @@ O sistema é composto por diversos microserviços:
 1. Clone o repositório:
 
 ```bash
-git clone https://github.com/seu-usuario/seu-repo.git
-cd seu-repo
+git clone https://github.com/PAULA-123/ScalableComputingA2
+cd ScalableComputingA2
 ```
+
+ou baixe o projeto completo zip
+
 
 2. Construa e suba todos os serviços:
 
