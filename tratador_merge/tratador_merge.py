@@ -39,9 +39,9 @@ secretary_schema = StructType([
     StructField("Data", StringType(), True)
 ])
 
-async def enviar_para_api(dados):
+def enviar_para_api(dados):
     try:
-        if not await verificar_api():
+        if not verificar_api():
             print("[ERRO] API não está disponível")
             return False
             
@@ -53,7 +53,7 @@ async def enviar_para_api(dados):
         print(f"[ERRO] Falha ao enviar para API: {str(e)}")
         return False
 
-async def verificar_api():
+def verificar_api():
     try:
         response = requests.get(f"{API_URL.replace('/merge-cep', '')}", timeout=5)
         return response.status_code == 200

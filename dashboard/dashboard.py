@@ -190,7 +190,7 @@ if not df_obitos.empty:
     
     with col1:
         st.subheader("Indicadores Chave")
-        st.metric("Média Histórica", f"{media_obitos:.1f} óbitos/dia")
+        st.metric("Média Global", f"{media_obitos:.1f} óbitos/dia")
         
         ultimo_registro = df_obitos.iloc[-1]
         st.metric("Último Registro", 
@@ -212,7 +212,7 @@ if not df_obitos.empty:
         ax.plot(df_obitos['Data'], df_obitos['Media_Movel'], 
                label='Média Móvel (7 dias)', color='orange', linestyle='--')
         ax.axhline(y=media_obitos, color='red', 
-                  linestyle=':', label='Média Histórica')
+                  linestyle=':', label='Média Global')
         
         # Destacar alertas
         alertas = df_obitos[df_obitos['Alerta']]

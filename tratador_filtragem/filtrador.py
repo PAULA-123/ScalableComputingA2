@@ -55,19 +55,16 @@ TOPICS_CONFIG = {
 
 # Funções de filtro específicas para cada tipo
 def filter_secretary(df):
-    """Filtra dados da secretaria com regras específicas"""
     return df.filter(
-        (col("Populacao") > 500) &
-        (col("Diagnostico").isNotNull()) &
-        (col("CEP").isNotNull()) 
-        # ((col("Vacinado") == 1) | (col("Diagnostico") == 1))
+        (col("Populacao") > 0) &          # quantidade populacional positiva
+        (col("CEP").isNotNull())          # CEP válido
     )
 
 def filter_hospital(df):
     """Filtra dados hospitalares com regras específicas"""
     return df.filter(
-        (col("Internado") == 1) &      # Apenas pacientes internados
-        (col("Idade") >= 18) &         # Apenas adultos
+        (col("CEP").isNotNull()) &    #CEP válido
+        (col("Idade").between(0, 120)) &    # Range de idade razoável
         (
             (col("Sintoma1") == 1) |   # Com pelo menos um sintoma
             (col("Sintoma2") == 1) |
@@ -77,12 +74,10 @@ def filter_hospital(df):
     )
     
 def filter_oms(df):
-    filtered = df
-    # filtered = df.filter(
-    #     (col("N_obitos") > 0) | # Apenas com óbitos ou
-    #     (col("N_recuperados") > 0) # recuperados
-    # )
-    print(f"[OMS] Enviando {filtered.count()} registros para filtered_oms")
+    filtered = df.filter(
+        (col("N_obitos") > 0) | # Apenas com óbitos ou
+        (col("N_recuperados") > 0) # recuperados
+    )
     return filtered
 
 def process_batch(msg, spark, producer):

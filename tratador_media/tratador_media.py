@@ -40,7 +40,7 @@ def process_batch(batch, spark):
         return None
         
     # Cálculos
-    window = Window.orderBy("Data").rowsBetween(-6, 0)
+    window = Window.partitionBy("CEP").orderBy("Data").rowsBetween(-6, 0)
     media_obitos = df.select(mean(col("N_obitos"))).collect()[0][0] or 0
     
     return df.withColumn("Alerta", 
