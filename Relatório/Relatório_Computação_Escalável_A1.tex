@@ -505,4 +505,82 @@ Essa arquitetura baseada em containers facilita a implantação, escalabilidade 
 
 
 
+\section{Manual de Execução do Pipeline local}
+
+Esta seção descreve os passos necessários para compilar, implantar e executar todo o pipeline de processamento de dados utilizando Docker e Docker Compose.
+
+\subsection*{Pré-requisitos}
+
+Antes de iniciar, certifique-se de que os seguintes softwares estejam instalados no sistema:
+
+\begin{itemize}
+    \item \textbf{Docker}: Ambiente de contêineres para isolamento e portabilidade.
+    \item \textbf{Docker Compose}: Orquestração de múltiplos contêineres via arquivo \texttt{docker-compose.yml}
+    % \item \textbf{Make} (opcional): para facilitar a execução de comandos com um \texttt{Makefile}.
+\end{itemize}
+
+\subsection*{Etapas para Compilar e Executar o Projeto}
+
+\begin{enumerate}
+    \item \textbf{Clone o repositório do projeto:}
+    \begin{verbatim}
+    git clone https://github.com/PAULA-123/ScalableComputingA2
+    cd ScalableComputingA2
+
+    ou baixe o projeto completo zip
+    \end{verbatim}
+
+    \item \textbf{Compile e suba os serviços com Docker Compose:}
+    \begin{verbatim}
+    docker-compose up --build
+    \end{verbatim}
+
+    Este comando compila as imagens necessárias e inicia os contêineres do Kafka, Redis, mock generator, tratadores, API e dashboard.
+
+    \item \textbf{Verifique o status dos serviços:}
+    \begin{verbatim}
+    docker-compose ps
+    \end{verbatim}
+
+    \item \textbf{Acesse o dashboard de visualização:}
+
+    Após a inicialização, o dashboard Streamlit estará disponível em:
+    \begin{verbatim}
+    http://localhost:8501
+    \end{verbatim}
+
+    \item \textbf{Acesse a API intermediária (FastAPI):}
+
+    A documentação automática da API pode ser acessada via:
+    \begin{verbatim}
+    http://localhost:8000/docs
+    \end{verbatim}
+
+    \item \textbf{Interromper os serviços:}
+    \begin{verbatim}
+    docker-compose down
+    \end{verbatim}
+
+    Este comando encerra todos os contêineres e libera os recursos utilizados.
+
+    \item \textbf{(Opcional) Limpeza de volumes e imagens:}
+    \begin{verbatim}
+    docker system prune -a
+    docker volume prune
+    \end{verbatim}
+    Use com cautela — isso removerá todas as imagens e volumes não utilizados.
+\end{enumerate}
+
+\subsection*{Observações Adicionais}
+
+\begin{itemize}
+    \item O serviço de mock (\texttt{mock-generator}) gera dados sintéticos e envia para os tópicos Kafka automaticamente.
+    \item Os tratadores Spark são iniciados automaticamente e consomem os dados assim que os tópicos estão disponíveis.
+    \item O pipeline é tolerante a falhas e reinicia os contêineres automaticamente em caso de quedas.
+\end{itemize}
+
+
+
+\section{Manual de Execução do Pipeline Nuvem}
+
 \end{document}
