@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
@@ -20,6 +20,7 @@ def root():
 # ==========================
 # MODELOS DE DADOS
 # ==========================
+
 class Resultado(BaseModel):
     quantidade: int
     taxa_vacinacao: float
@@ -49,7 +50,7 @@ class Regressao(BaseModel):
 class MediaMovel(BaseModel):
     Data: str
     media_movel: float
-##
+
 class EvolucaoVacinacao(BaseModel):
     Data: str
     total_vacinados: int
@@ -60,22 +61,46 @@ class EvolucaoDiagnostico(BaseModel):
     Data: str
     total_diagnosticos: int
 
+class AlertaObitos(BaseModel):
+    N_obitos: int
+    Populacao: int
+    CEP: int
+    N_recuperados: int
+    N_vacinados: int
+    Data: str
+    Alerta: str
+    Media_Movel: Optional[float] = None
+
+class MergeCEP(BaseModel):
+    CEP: int
+    Total_Internados: int
+    Soma_Idade: int
+    Total_Sintoma1: int
+    Total_Sintoma2: int
+    Total_Sintoma3: int
+    Total_Sintoma4: int
+    Total_Diagnosticos: int
+    Total_Vacinados: int
+    Soma_Escolaridade: int
+    Soma_Populacao: int
 
 # ==========================
 # DADOS EM MEMÓRIA
 # ==========================
+
 dados_metricas: List[Resultado] = []
 dados_agrupamento: List[Agrupado] = []
 dados_correlacao: List[Correlacao] = []
 dados_desvios: List[Desvio] = []
 dados_regressao: List[Regressao] = []
 dados_media_movel: List[MediaMovel] = []
-#
 dados_evolucao_vacinacao: List[EvolucaoVacinacao] = []
 dados_evolucao_diagnostico: List[EvolucaoDiagnostico] = []
+dados_alerta_obitos: List[AlertaObitos] = []
+dados_merge_cep: List[MergeCEP] = []
 
 # ==========================
-# ENDPOINTS PARA DASHBOARD
+# ENDPOINTS
 # ==========================
 
 @app.get("/metricas", response_model=List[Resultado])
@@ -137,7 +162,7 @@ def post_media_movel(novos: List[MediaMovel]):
     global dados_media_movel
     dados_media_movel = novos
     return {"message": "✅ Média móvel atualizada"}
-#
+
 @app.get("/evolucao-vacinacao", response_model=List[EvolucaoVacinacao])
 def get_evolucao_vacinacao():
     return dados_evolucao_vacinacao
@@ -157,3 +182,26 @@ def post_evolucao_diagnostico(novos: List[EvolucaoDiagnostico]):
     global dados_evolucao_diagnostico
     dados_evolucao_diagnostico = novos
     return {"message": "✅ Evolução de diagnosticados atualizada"}
+
+@app.get("/alerta-obitos", response_model=List[AlertaObitos])
+def get_alerta_obitos():
+    return dados_alerta_obitos
+
+@app.post("/alerta-obitos")
+def post_alerta_obitos(novos: List[AlertaObitos]):
+    try:
+        global dados_alerta_obitos
+        dados_alerta_obitos = novos
+        return {"message": "✅ Alertas de óbitos atualizados"}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Erro ao decodificar JSON: {str(e)}")
+
+@app.get("/merge-cep", response_model=List[MergeCEP])
+def get_merge_cep():
+    return dados_merge_cep
+
+@app.post("/merge-cep")
+def post_merge_cep(novos: List[MergeCEP]):
+    global dados_merge_cep
+    dados_merge_cep = novos
+    return {"message": "✅ Dados de merge por CEP atualizados"}

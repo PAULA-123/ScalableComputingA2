@@ -134,12 +134,14 @@ def main():
                 continue
 
             try:
-                mensagem = json.loads(msg.value().decode("utf-8"))
-                batch = mensagem.get("batch", [])
+                payload = json.loads(msg.value().decode("utf-8"))
+                batch = payload.get("batch", [])
                 if not batch:
                     continue
 
                 topic = msg.topic()
+                logger.info(f"📥 [{topic}] Batch recebido com {len(batch)} registros")
+
                 func = topic_para_funcao.get(topic)
                 schema = topic_para_schema.get(topic)
 
@@ -148,17 +150,20 @@ def main():
                     continue
 
                 df = spark.createDataFrame(batch, schema=schema)
-                logger.debug(f"Schema detectado para tópico {topic}")
                 df.show(5, truncate=False)
 
                 df_limpo = func(df)
                 df_limpo.show(5, truncate=False)
+
                 resultados = df_limpo.rdd.map(lambda row: json.loads(json.dumps(row.asDict()))).collect()
 
                 if resultados:
-                    payload = json.dumps({"batch": resultados})
-                    producer.produce(TOPICS_OUT[[k for k, v in TOPICS_IN.items() if v == topic][0]], payload.encode("utf-8"))
-                    logger.info(f"Enviado {len(resultados)} registros limpos para {topic}")
+                    origem = next((k for k, v in TOPICS_IN.items() if v == topic), None)
+                    if origem:
+                        output_topic = TOPICS_OUT[origem]
+                        payload_json = json.dumps({"batch": resultados})
+                        producer.produce(output_topic, payload_json.encode("utf-8"))
+                        logger.info(f"✅ Enviado {len(resultados)} registros limpos para {output_topic}")
                 else:
                     logger.info("Nenhum registro válido encontrado")
 

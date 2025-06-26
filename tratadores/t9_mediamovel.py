@@ -1,5 +1,5 @@
 import json
-import time
+import os
 import requests
 from datetime import datetime
 from typing import List, Dict
@@ -9,11 +9,17 @@ from pyspark.sql.functions import col, avg, to_date
 from pyspark.sql.window import Window
 from pyspark.sql.types import StructType, StructField, IntegerType, StringType
 
-KAFKA_BOOTSTRAP_SERVERS = "kafka:9092"
-GROUP_ID = "tratador_media_movel_group"
-SOURCE_TOPIC = "filtered_secretary"
-API_URL = "http://api:8000/media-movel"
+# ============================
+# CONFIGURAÇÕES COM VARIÁVEIS DE AMBIENTE
+# ============================
+KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092")
+GROUP_ID = os.getenv("GROUP_ID", "tratador_media_movel_group")
+SOURCE_TOPIC = os.getenv("SOURCE_TOPIC", "filtered_secretary")
+API_URL = os.getenv("API_URL", "http://api:8000/media-movel")
 
+# ============================
+# SCHEMA
+# ============================
 schema = StructType([
     StructField("Diagnostico", IntegerType(), True),
     StructField("Vacinado", IntegerType(), True),
@@ -54,7 +60,7 @@ def calcular_media_movel(df, enviar_api: bool = True) -> None:
 
 def main():
     spark = SparkSession.builder.appName("tratador_media_movel").getOrCreate()
-    spark.sparkContext.setLogLevel("ERROR")
+    spark.sparkContext.setLogLevel("WARN")
 
     consumer = Consumer({
         "bootstrap.servers": KAFKA_BOOTSTRAP_SERVERS,
@@ -83,8 +89,13 @@ def main():
                 continue
 
             try:
-                dado = json.loads(msg.value().decode("utf-8"))
-                registros.append(dado)
+                payload = json.loads(msg.value().decode("utf-8"))
+                batch = payload.get("batch")
+                if batch:
+                    registros.extend(batch)
+                    print(f"[BATCH] Recebido {len(batch)} registros")
+                else:
+                    registros.append(payload)
             except Exception as e:
                 print(f"❌ JSON inválido: {e}")
 

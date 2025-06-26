@@ -25,7 +25,7 @@ def aguardar_kafka(host="kafka", port=9092, timeout=30):
 
 minLinhas = int(os.getenv("MIN_LINHAS", 50))
 maxLinhas = int(os.getenv("MAX_LINHAS", 75))
-INTERVALO_CICLO = float(os.getenv("INTERVALO_CICLO", 4.0))
+INTERVALO_CICLO = float(os.getenv("INTERVALO_CICLO", 3.0))
 
 KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092")
 

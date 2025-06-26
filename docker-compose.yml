@@ -117,6 +117,25 @@ services:
     networks:
       - kafka_net
 
+  tratador3_merge:
+    build:
+      context: ./tratadores
+    command: t3_merge.py
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+    depends_on:
+      kafka:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M  
+    networks:
+      - kafka_net
   tratador4_agrupar_m1:
     build:
       context: ./tratadores
@@ -196,10 +215,89 @@ services:
     networks:
       - kafka_net
       
+  tratador5_media:
+    build:
+      context: ./tratadores
+    command: t5_media_alerta.py
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+    depends_on:
+      kafka:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M  
+    networks:
+      - kafka_net      
   tratador6_correlacao:
     build:
       context: ./tratadores
     command: t6_correlacao.py
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+    depends_on:
+      kafka:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M  
+    networks:
+      - kafka_net
+
+  tratador7_desviopadrao:
+    build:
+      context: ./tratadores
+    command: t7_desviopadrao.py
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+    depends_on:
+      kafka:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M  
+    networks:
+      - kafka_net
+
+  tratador8_correlacao:
+    build:
+      context: ./tratadores
+    command: t8_regressao.py
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+    depends_on:
+      kafka:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M  
+    networks:
+      - kafka_net
+
+  tratador9_mediamovel:
+    build:
+      context: ./tratadores
+    command: t9_mediamovel.py
     environment:
       - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
     depends_on:
@@ -221,12 +319,8 @@ services:
       context: ./api
     ports:
       - "${API_PORT}:8000"
-    depends_on:
-      - tratador4_agrupar_m1
     command: ["uvicorn", "api:app", "--host", "0.0.0.0", "--port", "8000"]
     restart: unless-stopped
-    # volumes:
-    #   - resultados:/app/databases_mock
     deploy:
       resources:
         limits:
