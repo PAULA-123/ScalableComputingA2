@@ -38,13 +38,10 @@ def process_batch(batch, spark):
         print("[AVISO] DataFrame vazio recebido")
         return None
 
-    window = Window.partitionBy("CEP").orderBy("Data").rowsBetween(-6, 0)
     media_obitos = df.select(mean(col("N_obitos"))).collect()[0][0] or 0
 
     return df.withColumn("Alerta",
-               when(col("N_obitos") > media_obitos, "Vermelho").otherwise("Verde")) \
-           .withColumn("Media_Movel",
-               mean(col("N_obitos")).over(window))
+               when(col("N_obitos") > media_obitos, "Vermelho").otherwise("Verde"))
 
 def main():
     print("\n=== INICIANDO TRATADOR DE ALERTA ===")

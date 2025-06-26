@@ -56,7 +56,7 @@ TOPICS_CONFIG = {
 # Funções de filtro específicas para cada tipo
 def filter_secretary(df):
     return df.filter(
-        (col("Populacao") > 0) &          # quantidade populacional positiva
+        (col("Populacao") > 500) &          # quantidade populacional positiva
         (col("CEP").isNotNull())          # CEP válido
     )
 

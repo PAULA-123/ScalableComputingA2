@@ -24,21 +24,15 @@ def root():
 class MergeCEP(BaseModel):
     CEP: int
     Total_Internados: int
-    Soma_Idade: int
+    Media_Idade: float
     Total_Sintoma1: int
     Total_Sintoma2: int
     Total_Sintoma3: int
     Total_Sintoma4: int
     Total_Diagnosticos: int
     Total_Vacinados: int
-    Soma_Escolaridade: int
-    Soma_Populacao: int
-
-class Agrupado(BaseModel):
-    CEP: int
-    data: Optional[str]
-    media_diagnostico: float
-    total_vacinados: int
+    Media_Escolaridade: float
+    Populacao: int
     
 class AlertaObitos(BaseModel):
     N_obitos: int
@@ -48,7 +42,6 @@ class AlertaObitos(BaseModel):
     N_vacinados: int
     Data: str
     Alerta: str
-    Media_Movel: Optional[float] = None
 
 class Correlacao(BaseModel):
     Escolaridade: float
@@ -70,8 +63,8 @@ class MediaMovel(BaseModel):
 # ==========================
 # DADOS EM MEMÓRIA
 # ==========================
+
 dados_merge_cep: List[MergeCEP] = []
-dados_agrupamento: List[Agrupado] = []
 dados_alerta_obitos: List[AlertaObitos] = []
 dados_correlacao: List[Correlacao] = []
 dados_desvios: List[Desvio] = []
@@ -82,6 +75,7 @@ dados_media_movel: List[MediaMovel] = []
 # ENDPOINTS PARA DASHBOARD
 # ==========================
 
+# Merge CEP
 @app.get("/merge-cep", response_model=List[MergeCEP])
 def get_merge_cep():
     return dados_merge_cep
@@ -92,16 +86,7 @@ def post_merge_cep(novos: List[MergeCEP]):
     dados_merge_cep = novos
     return {"message": "Dados de merge por CEP atualizados"}
 
-@app.get("/agrupamento", response_model=List[Agrupado])
-def get_agrupamento():
-    return dados_agrupamento
-
-@app.post("/agrupamento")
-def post_agrupamento(novos: List[Agrupado]):
-    global dados_agrupamento
-    dados_agrupamento = novos
-    return {"message": "Dados de agrupamento atualizados"}
-
+# Alerta óbitos
 @app.get("/alerta-obitos", response_model=List[AlertaObitos])
 def get_alerta_obitos():
     return dados_alerta_obitos
@@ -112,18 +97,7 @@ def post_alerta_obitos(novos: List[AlertaObitos]):
     dados_alerta_obitos = novos
     return {"message": "Alertas de óbitos atualizados"}
 
-@app.post("/alerta-obitos")
-async def post_alerta_obitos(novos: List[AlertaObitos]):
-    try:
-        global dados_alerta_obitos
-        dados_alerta_obitos = novos
-        return {"message": "Alertas de óbitos atualizados"}
-    except ValueError as e:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Erro ao decodificar JSON: {str(e)}"
-        )
-
+# Correlação
 @app.get("/correlacao", response_model=List[Correlacao])
 def get_correlacao():
     return dados_correlacao
@@ -134,6 +108,7 @@ def post_correlacao(novos: List[Correlacao]):
     dados_correlacao = novos
     return {"message": "Correlações atualizadas"}
 
+# Desvios
 @app.get("/desvios", response_model=List[Desvio])
 def get_desvios():
     return dados_desvios
@@ -144,6 +119,7 @@ def post_desvios(novos: List[Desvio]):
     dados_desvios = novos
     return {"message": "Desvios atualizados"}
 
+# Regressões
 @app.get("/regressao", response_model=List[Regressao])
 def get_regressao():
     return dados_regressao
@@ -154,6 +130,7 @@ def post_regressao(novos: List[Regressao]):
     dados_regressao = novos
     return {"message": "Regressões atualizadas"}
 
+# Média móvel
 @app.get("/media-movel", response_model=List[MediaMovel])
 def get_media_movel():
     return dados_media_movel

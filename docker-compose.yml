@@ -61,7 +61,6 @@ services:
       kafka:
         condition: service_healthy
 
-  # Atualizado para o cleaner unificado
   tratador-limpeza:
     build:
       context: ./tratador_limpeza
@@ -92,6 +91,47 @@ services:
       - tratador-limpeza
     volumes:
       - ./logs/filtrador:/app/logs
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        
+  tratador-agrupamento:
+    build:
+      context: ./tratador_agrupamento
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - SPARK_DRIVER_MEMORY=2g
+      - SPARK_EXECUTOR_MEMORY=2g
+      - GROUP_ID=tratador_agrupamento_2fontes
+    depends_on:
+      - kafka
+      - tratador-filtragem
+    volumes:
+      - ./logs/agrupamento:/app/logs
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+
+  tratador-correlacao:
+    build:
+      context: ./tratador_correlacao
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - SPARK_DRIVER_MEMORY=1g
+      - GROUP_ID=tratador_correlacao_group
+      - API_URL=http://api:8000/correlacao
+      - OUTPUT_FILE=/app/databases_mock/correlacao.json
+      - DEBUG=true
+      - PYTHONUNBUFFERED=1
+    depends_on:
+      - kafka
+      - tratador-agrupamento
+      - tratador-merge
+    volumes:
+      - ./databases_mock:/app/databases_mock:z
+      - ./logs/correlacao:/app/logs
     deploy:
       resources:
         limits:

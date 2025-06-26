@@ -1,22 +1,31 @@
 import json
-import time
 import os
-from confluent_kafka import Consumer, KafkaError
+import time
+from confluent_kafka import Consumer, KafkaError, Producer
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import col, sum as spark_sum
+from pyspark.sql.functions import col, avg, sum as spark_sum, first
 from pyspark.sql.types import StructType, StructField, IntegerType, StringType
 import requests
 
-# Configurações
+# ============================ CONFIGURAÇÕES ============================
+
 KAFKA_BOOTSTRAP_SERVERS = "kafka:9092"
 GROUP_ID = "tratador_merge_group"
 TOPIC_HOSPITAL = "filtered_hospital"
 TOPIC_SECRETARY = "filtered_secretary"
+TOPIC_SAIDA = "merge_hospital_secretary"
+
 OUTPUT_DIR = "/app/databases_mock"
 OUTPUT_FILE = os.path.join(OUTPUT_DIR, "merge_batch.json")
 API_URL = "http://api:8000/merge-cep"
 
-# Schemas
+# ============================ SPARK SESSION ============================
+
+spark = SparkSession.builder.appName("TratadorMerge").getOrCreate()
+spark.sparkContext.setLogLevel("ERROR")
+
+# ============================ SCHEMAS ============================
+
 hospital_schema = StructType([
     StructField("ID_Hospital", IntegerType(), True),
     StructField("Data", StringType(), True),
@@ -27,7 +36,7 @@ hospital_schema = StructType([
     StructField("Sintoma1", IntegerType(), True),
     StructField("Sintoma2", IntegerType(), True),
     StructField("Sintoma3", IntegerType(), True),
-    StructField("Sintoma4", IntegerType(), True)
+    StructField("Sintoma4", IntegerType(), True),
 ])
 
 secretary_schema = StructType([
@@ -36,68 +45,65 @@ secretary_schema = StructType([
     StructField("CEP", IntegerType(), True),
     StructField("Escolaridade", IntegerType(), True),
     StructField("Populacao", IntegerType(), True),
-    StructField("Data", StringType(), True)
+    StructField("Data", StringType(), True),
 ])
 
-def enviar_para_api(dados):
-    try:
-        if not verificar_api():
-            print("[ERRO] API não está disponível")
-            return False
-            
-        response = requests.post(API_URL, json=dados, timeout=10)
-        response.raise_for_status()
-        print(f"[API] Dados enviados. Status: {response.status_code}")
-        return True
-    except Exception as e:
-        print(f"[ERRO] Falha ao enviar para API: {str(e)}")
-        return False
+# ============================ PRODUTOR ============================
+
+producer = Producer({"bootstrap.servers": KAFKA_BOOTSTRAP_SERVERS})
+
+# ============================ UTILITÁRIOS ============================
 
 def verificar_api():
     try:
         response = requests.get(f"{API_URL.replace('/merge-cep', '')}", timeout=5)
         return response.status_code == 200
+    except:
+        return False
+
+def enviar_para_api(dados):
+    try:
+        if not verificar_api():
+            print("[API] Indisponível")
+            return False
+        response = requests.post(API_URL, json=dados, timeout=10)
+        response.raise_for_status()
+        print(f"[API] Dados enviados com status {response.status_code}")
+        return True
     except Exception as e:
-        print(f"[ERRO] API não disponível: {str(e)}")
+        print(f"[ERRO API] {str(e)}")
         return False
 
 def salvar_resultado(dados):
     try:
-        print(f"[ARQUIVO] Salvando em {OUTPUT_FILE}")
         os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-        # Carregar dados anteriores, se existirem
         if os.path.exists(OUTPUT_FILE):
             with open(OUTPUT_FILE, "r", encoding="utf-8") as f:
-                conteudo_antigo = json.load(f)
-                if not isinstance(conteudo_antigo, list):
-                    print("[ERRO] Conteúdo do arquivo não é uma lista JSON.")
-                    conteudo_antigo = []
+                anterior = json.load(f)
+                if not isinstance(anterior, list):
+                    anterior = []
         else:
-            conteudo_antigo = []
+            anterior = []
 
-        # Acrescentar novos dados
-        conteudo_antigo.extend(dados)
+        anterior.extend(dados)
 
-        # Salvar lista completa novamente
         with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
-            json.dump(conteudo_antigo, f, indent=4, ensure_ascii=False)
+            json.dump(anterior, f, indent=4, ensure_ascii=False)
 
-        print(f"[ARQUIVO] Batch salvo com sucesso ({len(dados)} registros)")
+        print(f"[ARQUIVO] Salvo {len(dados)} registros no JSON.")
         return True
     except Exception as e:
-        print(f"[ERRO ARQUIVO] Falha ao salvar: {str(e)}")
-        import traceback
-        traceback.print_exc()
+        print(f"[ERRO ARQUIVO] {str(e)}")
         return False
 
-def processar_batch(dados_hosp, dados_secr, spark):
+def processar_batch(dados_hosp, dados_secr):
     df_hosp = spark.createDataFrame(dados_hosp, schema=hospital_schema)
     df_secr = spark.createDataFrame(dados_secr, schema=secretary_schema)
 
     agg_hosp = df_hosp.groupBy("CEP").agg(
         spark_sum("Internado").alias("Total_Internados"),
-        spark_sum("Idade").alias("Soma_Idade"),
+        avg("Idade").alias("Media_Idade"),
         spark_sum("Sintoma1").alias("Total_Sintoma1"),
         spark_sum("Sintoma2").alias("Total_Sintoma2"),
         spark_sum("Sintoma3").alias("Total_Sintoma3"),
@@ -107,20 +113,17 @@ def processar_batch(dados_hosp, dados_secr, spark):
     agg_secr = df_secr.groupBy("CEP").agg(
         spark_sum("Diagnostico").alias("Total_Diagnosticos"),
         spark_sum("Vacinado").alias("Total_Vacinados"),
-        spark_sum("Escolaridade").alias("Soma_Escolaridade"),
-        spark_sum("Populacao").alias("Soma_Populacao")
+        avg("Escolaridade").alias("Media_Escolaridade"),
+        first("Populacao").alias("Populacao")
     )
 
     merged = agg_hosp.join(agg_secr, on="CEP", how="outer").fillna(0)
-    return [row.asDict() for row in merged.collect()]
+    return merged.toJSON().map(lambda x: json.loads(x)).collect()
+
+# ============================ LOOP PRINCIPAL ============================
 
 def main():
-    print("\n=== INICIANDO TRATADOR DE MERGE (BATCH) ===")
-    spark = SparkSession.builder \
-        .appName("TratadorMerge") \
-        .config("spark.sql.shuffle.partitions", "2") \
-        .getOrCreate()
-    spark.sparkContext.setLogLevel("ERROR")
+    print("\n=== INICIANDO TRATADOR DE MERGE ===\n")
 
     consumer = Consumer({
         "bootstrap.servers": KAFKA_BOOTSTRAP_SERVERS,
@@ -130,47 +133,57 @@ def main():
     })
 
     consumer.subscribe([TOPIC_HOSPITAL, TOPIC_SECRETARY])
-    print(f"Inscrito nos tópicos: {TOPIC_HOSPITAL}, {TOPIC_SECRETARY}")
+    dados_hosp, dados_secr = [], []
 
     try:
-        dados_hosp, dados_secr = [], []
         while True:
             msg = consumer.poll(timeout=1.0)
             if msg is None:
                 continue
-
             if msg.error():
                 if msg.error().code() != KafkaError._PARTITION_EOF:
-                    print(f"Erro no consumidor: {msg.error()}")
+                    print(f"[KAFKA] Erro: {msg.error()}")
                 continue
 
             try:
-                payload = json.loads(msg.value().decode('utf-8'))
-                batch = payload.get("batch", [])
-                
+                payload = json.loads(msg.value().decode("utf-8"))
+                registros = payload.get("batch", [])
+
                 if msg.topic() == TOPIC_HOSPITAL:
-                    dados_hosp.extend(batch)
-                    print(f"[HOSPITAL] +{len(batch)} registros (total: {len(dados_hosp)})")
+                    dados_hosp.extend(registros)
+                    print(f"[HOSPITAL] +{len(registros)} registros")
                 elif msg.topic() == TOPIC_SECRETARY:
-                    dados_secr.extend(batch)
-                    print(f"[SECRETARIA] +{len(batch)} registros (total: {len(dados_secr)})")
+                    dados_secr.extend(registros)
+                    print(f"[SECRETARIA] +{len(registros)} registros")
 
                 if dados_hosp and dados_secr:
-                    resultado = processar_batch(dados_hosp, dados_secr, spark)
+                    resultado = processar_batch(dados_hosp, dados_secr)
                     salvar_resultado(resultado)
                     enviar_para_api(resultado)
-                    print(f"[MERGE] Batch processado - {len(resultado)} CEPs consolidados")
+
+                    payload_kafka = json.dumps({
+                        "batch": resultado,
+                        "source": "merge"
+                    })
+
+                    producer.produce(TOPIC_SAIDA, value=payload_kafka.encode("utf-8"))
+                    producer.flush()
+                    print(f"[KAFKA] Batch publicado em {TOPIC_SAIDA}")
+
                     dados_hosp, dados_secr = []
                     consumer.commit()
 
             except Exception as e:
-                print(f"Erro no processamento: {str(e)}")
+                print(f"[ERRO PROCESSAMENTO] {str(e)}")
 
     except KeyboardInterrupt:
-        print("\n=== FINALIZANDO CONSUMER ===")
+        print("\n[ENCERRADO PELO USUÁRIO]")
+
     finally:
         consumer.close()
         spark.stop()
+
+# ============================ EXECUÇÃO ============================
 
 if __name__ == "__main__":
     main()
