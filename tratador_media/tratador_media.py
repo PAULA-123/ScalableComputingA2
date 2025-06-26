@@ -18,7 +18,7 @@ API_URL = "http://api:8000/alerta-obitos"
 # Schema com tipos explícitos
 schema = {
     "N_obitos": "integer",
-    "Populacao": "integer", 
+    "Populacao": "integer",
     "CEP": "integer",
     "N_recuperados": "integer",
     "N_vacinados": "integer",
@@ -34,18 +34,16 @@ def setup_spark():
 def process_batch(batch, spark):
     df = spark.createDataFrame(batch)
     
-    # Verificação de dados
     if df.isEmpty():
         print("[AVISO] DataFrame vazio recebido")
         return None
-        
-    # Cálculos
+
     window = Window.partitionBy("CEP").orderBy("Data").rowsBetween(-6, 0)
     media_obitos = df.select(mean(col("N_obitos"))).collect()[0][0] or 0
-    
-    return df.withColumn("Alerta", 
+
+    return df.withColumn("Alerta",
                when(col("N_obitos") > media_obitos, "Vermelho").otherwise("Verde")) \
-           .withColumn("Media_Movel", 
+           .withColumn("Media_Movel",
                mean(col("N_obitos")).over(window))
 
 def main():
@@ -71,7 +69,7 @@ def main():
     try:
         while True:
             msg = consumer.poll(timeout=5.0)
-            
+
             if msg is None:
                 print("[DEBUG] Nenhuma mensagem recebida. Verificando tópico...")
                 continue
@@ -82,7 +80,7 @@ def main():
 
             try:
                 process_message(msg, spark)
-                
+
             except Exception as e:
                 print(f"[ERRO] Processamento falhou: {str(e)}")
                 import traceback
@@ -98,25 +96,45 @@ def main():
 def process_message(msg, spark):
     payload = json.loads(msg.value().decode('utf-8'))
     print(f"[DEBUG] Mensagem recebida: {payload.keys()}")
-    
+
     if "batch" not in payload:
         print("[AVISO] Mensagem sem campo 'batch'")
         return
 
     batch = payload["batch"]
     print(f"[PROCESSAMENTO] Batch com {len(batch)} registros")
-    
+
     df_processed = process_batch(batch, spark)
     if df_processed is None:
         return
 
     resultado = [row.asDict() for row in df_processed.collect()]
-    
-    # Salvar arquivo
-    with open(OUTPUT_FILE, "w") as f:
-        json.dump(resultado, f)
-    print(f"[ARQUIVO] Dados salvos em {OUTPUT_FILE}")
-    
+
+    # Salvar sem sobrescrever
+    try:
+        os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+        if os.path.exists(OUTPUT_FILE):
+            with open(OUTPUT_FILE, "r", encoding="utf-8") as f:
+                conteudo_antigo = json.load(f)
+                if not isinstance(conteudo_antigo, list):
+                    print("[ERRO] Conteúdo antigo não é uma lista JSON. Sobrescrevendo.")
+                    conteudo_antigo = []
+        else:
+            conteudo_antigo = []
+
+        conteudo_antigo.extend(resultado)
+
+        with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
+            json.dump(conteudo_antigo, f, indent=4, ensure_ascii=False)
+
+        print(f"[ARQUIVO] Batch salvo com sucesso ({len(resultado)} registros)")
+
+    except Exception as e:
+        print(f"[ERRO ARQUIVO] Falha ao salvar JSON: {str(e)}")
+        import traceback
+        traceback.print_exc()
+
     # Enviar para API
     try:
         response = requests.post(API_URL, json=resultado, timeout=5)

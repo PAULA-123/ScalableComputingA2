@@ -10,13 +10,13 @@ import requests
 # Configurações
 KAFKA_BOOTSTRAP_SERVERS = "kafka:9092"
 GROUP_ID = "tratador_merge_group"
-TOPIC_HOSPITAL = "filtered_hospital"  # Consome dados filtrados
-TOPIC_SECRETARY = "filtered_secretary"  # Consome dados filtrados
-OUTPUT_DIR = "/app/databases_mock"  #Caminho dentro do container
+TOPIC_HOSPITAL = "filtered_hospital"
+TOPIC_SECRETARY = "filtered_secretary"
+OUTPUT_DIR = "/app/databases_mock"
 OUTPUT_FILE = os.path.join(OUTPUT_DIR, "merge_batch.json")
 API_URL = "http://api:8000/merge-cep"
 
-# Schemas para dados filtrados
+# Schemas
 hospital_schema = StructType([
     StructField("ID_Hospital", IntegerType(), True),
     StructField("Data", StringType(), True),
@@ -63,27 +63,27 @@ def verificar_api():
 
 def salvar_resultado(dados):
     try:
-        print(f"[ARQUIVO] Tentando salvar em {OUTPUT_FILE}")
-        
-        # Garante que o diretório existe
-        os.makedirs(OUTPUT_DIR, exist_ok=True, mode=0o777)
-        
-        # Teste de escrita
-        test_file = os.path.join(OUTPUT_DIR, "test_write.tmp")
-        with open(test_file, "w") as f:
-            f.write("test")
-        os.remove(test_file)
-        
-        # Escreve em arquivo temporário primeiro
-        temp_file = OUTPUT_FILE + ".tmp"
-        with open(temp_file, "w") as f:
-            json.dump(dados, f, indent=4, ensure_ascii=False)
-            f.flush()
-            os.fsync(f.fileno())
-        
-        # Move atomicamente
-        os.replace(temp_file, OUTPUT_FILE)
-        print(f"[ARQUIVO] Dados salvos com sucesso em {OUTPUT_FILE}")
+        print(f"[ARQUIVO] Salvando em {OUTPUT_FILE}")
+        os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+        # Carregar dados anteriores, se existirem
+        if os.path.exists(OUTPUT_FILE):
+            with open(OUTPUT_FILE, "r", encoding="utf-8") as f:
+                conteudo_antigo = json.load(f)
+                if not isinstance(conteudo_antigo, list):
+                    print("[ERRO] Conteúdo do arquivo não é uma lista JSON.")
+                    conteudo_antigo = []
+        else:
+            conteudo_antigo = []
+
+        # Acrescentar novos dados
+        conteudo_antigo.extend(dados)
+
+        # Salvar lista completa novamente
+        with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
+            json.dump(conteudo_antigo, f, indent=4, ensure_ascii=False)
+
+        print(f"[ARQUIVO] Batch salvo com sucesso ({len(dados)} registros)")
         return True
     except Exception as e:
         print(f"[ERRO ARQUIVO] Falha ao salvar: {str(e)}")
@@ -92,11 +92,9 @@ def salvar_resultado(dados):
         return False
 
 def processar_batch(dados_hosp, dados_secr, spark):
-    # Criar DataFrames
     df_hosp = spark.createDataFrame(dados_hosp, schema=hospital_schema)
     df_secr = spark.createDataFrame(dados_secr, schema=secretary_schema)
 
-    # Agregações por CEP
     agg_hosp = df_hosp.groupBy("CEP").agg(
         spark_sum("Internado").alias("Total_Internados"),
         spark_sum("Idade").alias("Soma_Idade"),
@@ -113,7 +111,6 @@ def processar_batch(dados_hosp, dados_secr, spark):
         spark_sum("Populacao").alias("Soma_Populacao")
     )
 
-    # Merge e tratamento de nulos
     merged = agg_hosp.join(agg_secr, on="CEP", how="outer").fillna(0)
     return [row.asDict() for row in merged.collect()]
 
@@ -158,13 +155,12 @@ def main():
                     dados_secr.extend(batch)
                     print(f"[SECRETARIA] +{len(batch)} registros (total: {len(dados_secr)})")
 
-                # Processar quando tiver dados de ambos
                 if dados_hosp and dados_secr:
                     resultado = processar_batch(dados_hosp, dados_secr, spark)
                     salvar_resultado(resultado)
                     enviar_para_api(resultado)
                     print(f"[MERGE] Batch processado - {len(resultado)} CEPs consolidados")
-                    dados_hosp, dados_secr = [], []  # Reset
+                    dados_hosp, dados_secr = []
                     consumer.commit()
 
             except Exception as e:
