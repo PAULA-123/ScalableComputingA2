@@ -9,7 +9,7 @@ from confluent_kafka import Producer
 
 minLinhas = int(os.getenv("MIN_LINHAS", 50))
 maxLinhas = int(os.getenv("MAX_LINHAS", 75))
-INTERVALO_CICLO = float(os.getenv("INTERVALO_CICLO", 0.2))
+INTERVALO_CICLO = float(os.getenv("INTERVALO_CICLO", 100))
 
 KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092")
 
@@ -68,7 +68,7 @@ def oms_generate_mock_batch(rows=None, output_file="databases_mock/oms_mock.json
         dados.append(registro)
         batch.append(registro)
 
-    mensagem = {"batch": batch}
+    mensagem = {"batch": dados, "source": "oms", "type": "normal"}
     kafka_send(TOPIC_OMS, mensagem)
 
     print(f"[OMS] {rows} registros enviados em batch de tamanho {batch_size} para '{TOPIC_OMS}'", flush=FLUSH)
@@ -99,7 +99,7 @@ def hospital_generate_mock_batch(rows=None, output_file="databases_mock/hospital
 
         dados.append(registro)
 
-    mensagem = {"batch": dados}
+    mensagem = {"batch": dados, "source": "hospital", "type": "normal"}
     kafka_send(TOPIC_HOSPITAL_b, mensagem)
     print(f"[HOSPITAL] {rows} registros enviados para tópico '{TOPIC_HOSPITAL_b}'", flush=FLUSH)
 
@@ -143,7 +143,7 @@ def secretary_generate_mock_batch(rows=None, output_file="databases_mock/secreta
         }
         dados.append(registro)
 
-    mensagem = {"batch": dados}
+    mensagem = {"batch": dados, "source": "secretary", "type": "normal"}
     kafka_send(TOPIC_SECRETARY_b, mensagem)
     print(f"[SECRETARIA] {rows} registros enviados para tópico '{TOPIC_SECRETARY_b}'")
 
