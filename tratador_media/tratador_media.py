@@ -3,119 +3,132 @@ import time
 import os
 from confluent_kafka import Consumer, KafkaError
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import col, mean, when, lit
-from pyspark.sql.types import StructType, StructField, IntegerType, StringType
+from pyspark.sql.functions import col, mean, when
+from pyspark.sql.window import Window
 import requests
 
-# Configurações
-KAFKA_BOOTSTRAP_SERVERS = "kafka:9092"
-GROUP_ID = "tratador_alerta_group"
-SOURCE_TOPIC = "filtered_oms"  # Consome dados filtrados
+# Configurações com fallback
+KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092")
+GROUP_ID = os.getenv("GROUP_ID", "tratador_alerta_group")
+SOURCE_TOPIC = os.getenv("SOURCE_TOPIC", "filtered_oms")
 OUTPUT_DIR = "/app/databases_mock"
 OUTPUT_FILE = os.path.join(OUTPUT_DIR, "alerta_batch.json")
 API_URL = "http://api:8000/alerta-obitos"
 
-# Schema para dados OMS filtrados
-schema = StructType([
-    StructField("N_obitos", IntegerType(), True),
-    StructField("Populacao", IntegerType(), True),
-    StructField("CEP", IntegerType(), True),
-    StructField("N_recuperados", IntegerType(), True),
-    StructField("N_vacinados", IntegerType(), True),
-    StructField("Data", StringType(), True)
-])
+# Schema com tipos explícitos
+schema = {
+    "N_obitos": "integer",
+    "Populacao": "integer", 
+    "CEP": "integer",
+    "N_recuperados": "integer",
+    "N_vacinados": "integer",
+    "Data": "string"
+}
 
-def enviar_para_api(dados):
-    try:
-        response = requests.post(API_URL, json=dados)
-        response.raise_for_status()
-        print(f"[ALERTA] Dados enviados para API. Status: {response.status_code}")
-    except Exception as e:
-        print(f"[ALERTA] Erro na API: {str(e)}")
-
-def salvar_resultado(dados):
-    try:
-        # Cria diretório se não existir
-        if not os.path.exists(OUTPUT_DIR):
-            os.makedirs(OUTPUT_DIR, mode=0o777, exist_ok=True)
-        
-        # Escreve arquivo temporário primeiro
-        temp_file = OUTPUT_FILE + ".tmp"
-        with open(temp_file, "w") as f:
-            json.dump(dados, f, indent=4)
-            f.flush()
-            os.fsync(f.fileno())
-        
-        # Renomeia para substituir o arquivo original atomicamente
-        os.replace(temp_file, OUTPUT_FILE)
-        
-        print(f"[ALERTA] Dados salvos em {OUTPUT_FILE}")
-    except Exception as e:
-        print(f"[ALERTA] Erro ao salvar: {str(e)}")
-
-def calcular_alertas(df):
-    media_obitos = df.select(mean(col("N_obitos"))).collect()[0][0] or 0
-    return df.withColumn(
-        "Alerta",
-        when(col("N_obitos") > media_obitos, "Vermelho").otherwise("Verde")
-    ).withColumn(
-        "Media_Movel",
-        mean(col("N_obitos")).over(Window.orderBy("Data").rowsBetween(-6, 0))
-    )
-
-def main():
-    print("\n=== INICIANDO TRATADOR DE ALERTA (BATCH) ===")
-    spark = SparkSession.builder \
+def setup_spark():
+    return SparkSession.builder \
         .appName("TratadorAlerta") \
         .config("spark.sql.shuffle.partitions", "2") \
         .getOrCreate()
-    spark.sparkContext.setLogLevel("ERROR")
+
+def process_batch(batch, spark):
+    df = spark.createDataFrame(batch)
+    
+    # Verificação de dados
+    if df.isEmpty():
+        print("[AVISO] DataFrame vazio recebido")
+        return None
+        
+    # Cálculos
+    window = Window.orderBy("Data").rowsBetween(-6, 0)
+    media_obitos = df.select(mean(col("N_obitos"))).collect()[0][0] or 0
+    
+    return df.withColumn("Alerta", 
+               when(col("N_obitos") > media_obitos, "Vermelho").otherwise("Verde")) \
+           .withColumn("Media_Movel", 
+               mean(col("N_obitos")).over(window))
+
+def main():
+    print("\n=== INICIANDO TRATADOR DE ALERTA ===")
+    print(f"Conectando ao Kafka em: {KAFKA_BOOTSTRAP_SERVERS}")
+    print(f"Tópico: {SOURCE_TOPIC}")
+    print(f"Grupo: {GROUP_ID}")
+    
+    spark = setup_spark()
+    spark.sparkContext.setLogLevel("WARN")
 
     consumer = Consumer({
         "bootstrap.servers": KAFKA_BOOTSTRAP_SERVERS,
         "group.id": GROUP_ID,
         "auto.offset.reset": "earliest",
-        "enable.auto.commit": False
+        "enable.auto.commit": False,
+        "max.poll.interval.ms": 300000
     })
 
     consumer.subscribe([SOURCE_TOPIC])
-    print(f"🔍 Inscrito no tópico: {SOURCE_TOPIC}")
+    print(f"Inscrito no tópico {SOURCE_TOPIC}")
 
     try:
         while True:
-            msg = consumer.poll(timeout=1.0)
+            msg = consumer.poll(timeout=5.0)
+            
             if msg is None:
+                print("[DEBUG] Nenhuma mensagem recebida. Verificando tópico...")
                 continue
 
             if msg.error():
-                if msg.error().code() != KafkaError._PARTITION_EOF:
-                    print(f"Erro no consumidor: {msg.error()}")
+                handle_kafka_error(msg.error())
                 continue
 
             try:
-                payload = json.loads(msg.value().decode('utf-8'))
-                batch = payload.get("batch", [])
+                process_message(msg, spark)
                 
-                if not batch:
-                    continue
-
-                df = spark.createDataFrame(batch, schema=schema)
-                df_alertas = calcular_alertas(df)
-                
-                resultado = [row.asDict() for row in df_alertas.collect()]
-                salvar_resultado(resultado)
-                enviar_para_api(resultado)
-                print(f"[ALERTA] Batch processado - {len(resultado)} registros")
-                consumer.commit()
-
             except Exception as e:
-                print(f"Erro no processamento: {str(e)}")
+                print(f"[ERRO] Processamento falhou: {str(e)}")
+                import traceback
+                traceback.print_exc()
 
     except KeyboardInterrupt:
-        print("\n=== FINALIZANDO CONSUMER ===")
+        print("\n=== ENCERRANDO ===")
     finally:
         consumer.close()
         spark.stop()
+        print("Recursos liberados")
+
+def process_message(msg, spark):
+    payload = json.loads(msg.value().decode('utf-8'))
+    print(f"[DEBUG] Mensagem recebida: {payload.keys()}")
+    
+    if "batch" not in payload:
+        print("[AVISO] Mensagem sem campo 'batch'")
+        return
+
+    batch = payload["batch"]
+    print(f"[PROCESSAMENTO] Batch com {len(batch)} registros")
+    
+    df_processed = process_batch(batch, spark)
+    if df_processed is None:
+        return
+
+    resultado = [row.asDict() for row in df_processed.collect()]
+    
+    # Salvar arquivo
+    with open(OUTPUT_FILE, "w") as f:
+        json.dump(resultado, f)
+    print(f"[ARQUIVO] Dados salvos em {OUTPUT_FILE}")
+    
+    # Enviar para API
+    try:
+        response = requests.post(API_URL, json=resultado, timeout=5)
+        response.raise_for_status()
+        print(f"[API] Dados enviados. Status: {response.status_code}")
+    except Exception as e:
+        print(f"[ERRO API] {str(e)}")
+
+def handle_kafka_error(error):
+    if error.code() == KafkaError._PARTITION_EOF:
+        return
+    print(f"[ERRO KAFKA] {error.str()}")
 
 if __name__ == "__main__":
     main()

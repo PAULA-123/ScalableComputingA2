@@ -57,10 +57,10 @@ TOPICS_CONFIG = {
 def filter_secretary(df):
     """Filtra dados da secretaria com regras específicas"""
     return df.filter(
-        (col("Populacao") > 1000) &
+        (col("Populacao") > 500) &
         (col("Diagnostico").isNotNull()) &
-        (col("CEP").isNotNull()) &
-        ((col("Vacinado") == 1) | (col("Diagnostico") == 1))
+        (col("CEP").isNotNull()) 
+        # ((col("Vacinado") == 1) | (col("Diagnostico") == 1))
     )
 
 def filter_hospital(df):
@@ -75,13 +75,15 @@ def filter_hospital(df):
             (col("Sintoma4") == 1)
         )
     )
-
+    
 def filter_oms(df):
-    """Filtra dados da OMS com regras específicas"""
-    return df.filter(
-        (col("N_obitos") > 0) |      # Apenas com óbitos ou
-        (col("N_recuperados") > 0)    # recuperados
-    )
+    filtered = df
+    # filtered = df.filter(
+    #     (col("N_obitos") > 0) | # Apenas com óbitos ou
+    #     (col("N_recuperados") > 0) # recuperados
+    # )
+    print(f"[OMS] Enviando {filtered.count()} registros para filtered_oms")
+    return filtered
 
 def process_batch(msg, spark, producer):
     """Processa um batch completo de mensagens"""
@@ -132,13 +134,8 @@ def process_batch(msg, spark, producer):
     return None
 
 def main():
-    # Configuração do Spark
-    spark = SparkSession.builder \
-        .appName("filtrador_unificado") \
-        .config("spark.sql.shuffle.partitions", "2") \
-        .getOrCreate()
-    spark.sparkContext.setLogLevel("ERROR")
-
+    spark = None
+    
     # Configuração do Kafka Consumer
     consumer = Consumer({
         "bootstrap.servers": KAFKA_BOOTSTRAP_SERVERS,
@@ -161,6 +158,18 @@ def main():
     print(f"Inscrito nos tópicos: {topics_in}\nAguardando mensagens...")
 
     try:
+        # Configuração do Spark
+        spark = SparkSession.builder \
+            .appName("filtrador") \
+            .config("spark.sql.shuffle.partitions", "2") \
+            .config("spark.driver.memory", "1g") \
+            .config("spark.executor.memory", "1g") \
+            .config("spark.driver.extraJavaOptions", "-Dio.netty.tryReflectionSetAccessible=true") \
+            .getOrCreate()
+            
+        spark.sparkContext.setLogLevel("ERROR")
+        spark.sparkContext.setLocalProperty("spark.scheduler.pool", "production")
+
         batch_count = total_processed = 0
         start_time = time.time()
         batch_messages = []
@@ -195,8 +204,10 @@ def main():
                 batch_messages = []
                 print(f"Lote {batch_count} processado - {processed} registros")
 
-    except KeyboardInterrupt:
-        print("\nInterrupção solicitada")
+    # except KeyboardInterrupt:
+    #     print("\nInterrupção solicitada")
+    except Exception as e:
+        print(f"Erro crítico: {str(e)}")
     finally:
         # Estatísticas finais
         duration = time.time() - start_time
@@ -209,7 +220,8 @@ def main():
         # Libera recursos
         producer.flush()
         consumer.close()
-        spark.stop()
+        if spark:
+            spark.stop()
         print("Recursos liberados")
 
 if __name__ == "__main__":

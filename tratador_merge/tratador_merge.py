@@ -13,7 +13,7 @@ GROUP_ID = "tratador_merge_group"
 TOPIC_HOSPITAL = "filtered_hospital"  # Consome dados filtrados
 TOPIC_SECRETARY = "filtered_secretary"  # Consome dados filtrados
 OUTPUT_DIR = "/app/databases_mock"  #Caminho dentro do container
-OUTPUT_FILE = os.path.join(OUTPUT_DIR, "databases_mock/merge_batch.json")
+OUTPUT_FILE = os.path.join(OUTPUT_DIR, "merge_batch.json")
 API_URL = "http://api:8000/merge-cep"
 
 # Schemas para dados filtrados
@@ -39,27 +39,57 @@ secretary_schema = StructType([
     StructField("Data", StringType(), True)
 ])
 
-def enviar_para_api(dados):
+async def enviar_para_api(dados):
     try:
-        response = requests.post(API_URL, json=dados)
+        if not await verificar_api():
+            print("[ERRO] API não está disponível")
+            return False
+            
+        response = requests.post(API_URL, json=dados, timeout=10)
         response.raise_for_status()
-        print(f"[MERGE] Dados enviados para API. Status: {response.status_code}")
+        print(f"[API] Dados enviados. Status: {response.status_code}")
+        return True
     except Exception as e:
-        print(f"[MERGE] Erro ao enviar para API: {str(e)}")
+        print(f"[ERRO] Falha ao enviar para API: {str(e)}")
+        return False
+
+async def verificar_api():
+    try:
+        response = requests.get(f"{API_URL.replace('/merge-cep', '')}", timeout=5)
+        return response.status_code == 200
+    except Exception as e:
+        print(f"[ERRO] API não disponível: {str(e)}")
+        return False
 
 def salvar_resultado(dados):
     try:
-        #Garante que o diretório existe
-        os.makedirs(OUTPUT_DIR, exist_ok=True)
+        print(f"[ARQUIVO] Tentando salvar em {OUTPUT_FILE}")
         
-        # Modo 'w' sobrescreve o arquivo
-        with open(OUTPUT_FILE, "w") as f:
-            json.dump(dados, f, indent=4)
-            f.flush()  #Força escrita imediata
-            os.fsync(f.fileno()) # garante flush no disco
-        print(f"[MERGE] Dados salvos em {OUTPUT_FILE}")
+        # Garante que o diretório existe
+        os.makedirs(OUTPUT_DIR, exist_ok=True, mode=0o777)
+        
+        # Teste de escrita
+        test_file = os.path.join(OUTPUT_DIR, "test_write.tmp")
+        with open(test_file, "w") as f:
+            f.write("test")
+        os.remove(test_file)
+        
+        # Escreve em arquivo temporário primeiro
+        temp_file = OUTPUT_FILE + ".tmp"
+        with open(temp_file, "w") as f:
+            json.dump(dados, f, indent=4, ensure_ascii=False)
+            f.flush()
+            os.fsync(f.fileno())
+        
+        # Move atomicamente
+        os.replace(temp_file, OUTPUT_FILE)
+        print(f"[ARQUIVO] Dados salvos com sucesso em {OUTPUT_FILE}")
+        return True
     except Exception as e:
-        print(f"[MERGE] Erro ao salvar arquivo: {str(e)}")
+        print(f"[ERRO ARQUIVO] Falha ao salvar: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return False
 
 def processar_batch(dados_hosp, dados_secr, spark):
     # Criar DataFrames

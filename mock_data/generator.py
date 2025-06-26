@@ -61,12 +61,11 @@ def oms_generate_mock_batch(rows=None):
             "Data": gerar_data_aleatoria_na_semana()
         }
         dados.append(registro)
-        batch.append(registro)
         
-        mensagem = {"batch": batch}
-        kafka_send(TOPIC_OMS_b, mensagem)
+    mensagem = {"batch": dados}
+    kafka_send(TOPIC_OMS_b, mensagem)
         
-        print(f"[OMS] {rows} registros enviados em batch de tamanho {batch_size} para '{TOPIC_OMS_b}'", flush=FLUSH)
+    print(f"[OMS] {rows} registros enviados em batch de tamanho {batch_size} para '{TOPIC_OMS_b}'", flush=FLUSH)
 
 # ==================== HOSPITAL ====================
 

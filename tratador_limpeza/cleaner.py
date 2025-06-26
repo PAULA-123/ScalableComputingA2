@@ -134,7 +134,7 @@ def process_batch(msg, spark, producer):
         return None
 
 def main():
-    spark = SparkSession.builder.appName("cleaner_unificado").getOrCreate()
+    spark = SparkSession.builder.appName("cleaner").getOrCreate()
     spark.sparkContext.setLogLevel("ERROR")
 
     consumer = Consumer({

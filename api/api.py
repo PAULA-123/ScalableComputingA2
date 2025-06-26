@@ -112,6 +112,18 @@ def post_alerta_obitos(novos: List[AlertaObitos]):
     dados_alerta_obitos = novos
     return {"message": "Alertas de óbitos atualizados"}
 
+@app.post("/alerta-obitos")
+async def post_alerta_obitos(novos: List[AlertaObitos]):
+    try:
+        global dados_alerta_obitos
+        dados_alerta_obitos = novos
+        return {"message": "Alertas de óbitos atualizados"}
+    except ValueError as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Erro ao decodificar JSON: {str(e)}"
+        )
+
 @app.get("/correlacao", response_model=List[Correlacao])
 def get_correlacao():
     return dados_correlacao
