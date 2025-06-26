@@ -34,7 +34,8 @@ def calcular_media_movel(df, enviar_api: bool = True) -> None:
         df = df.withColumn("Data", to_date(col("Data"), "yyyy-MM-dd"))
         df_agrupado = df.groupBy("Data").agg(avg("Diagnostico").alias("media_diagnostico_diaria"))
 
-        window_spec = Window.orderBy(col("Data")).rowsBetween(-6, 0)
+        # CORRIGIDO: adicionando partitionBy vazio para evitar warning
+        window_spec = Window.partitionBy().orderBy(col("Data")).rowsBetween(-6, 0)
         df_com_movel = df_agrupado.withColumn("media_movel", avg("media_diagnostico_diaria").over(window_spec))
 
         ultima_data = df_com_movel.agg({"Data": "max"}).first()[0]
@@ -90,12 +91,20 @@ def main():
 
             try:
                 payload = json.loads(msg.value().decode("utf-8"))
-                batch = payload.get("batch")
-                if batch:
-                    registros.extend(batch)
-                    print(f"[BATCH] Recebido {len(batch)} registros")
+
+                if isinstance(payload, list):
+                    registros.extend(payload)
+                    print(f"[BATCH] Recebidos {len(payload)} registros")
+                elif isinstance(payload, dict):
+                    if "batch" in payload and isinstance(payload["batch"], list):
+                        registros.extend(payload["batch"])
+                        print(f"[BATCH] Recebidos {len(payload['batch'])} registros via 'batch'")
+                    else:
+                        registros.append(payload)
+                        print("[SINGLE] Registro único recebido")
                 else:
-                    registros.append(payload)
+                    print("⚠️ Payload inesperado:", payload)
+
             except Exception as e:
                 print(f"❌ JSON inválido: {e}")
 

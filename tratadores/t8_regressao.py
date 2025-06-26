@@ -48,13 +48,15 @@ def calcular_regressao(df) -> List[Dict]:
 
     lr = LinearRegression(featuresCol="features", labelCol="Diagnostico")
     model = lr.fit(df_com_features)
-    coeficientes = model.coefficients.toArray()
 
-    return [
-        {"variavel": "Vacinado", "beta": round(coeficientes[0], 4)},
-        {"variavel": "Escolaridade", "beta": round(coeficientes[1], 4)},
-        {"variavel": "Populacao", "beta": round(coeficientes[2], 4)}
-    ]
+    coeficientes = model.coefficients  # é um DenseVector
+    resultado = []
+
+    for i, nome in enumerate(["Vacinado", "Escolaridade", "Populacao"]):
+        valor = float(coeficientes[i]) if i < len(coeficientes) else 0.0
+        resultado.append({"variavel": nome, "beta": round(valor, 4)})
+
+    return resultado
 
 def main():
     print("[REGRESSAO] Iniciando tratador de regressão com Spark")
@@ -90,11 +92,10 @@ def main():
             try:
                 payload = json.loads(msg.value().decode("utf-8"))
                 batch = payload.get("batch")
-                if batch:
+                if isinstance(batch, list):
                     registros.extend(batch)
                 else:
                     registros.append(payload)
-
             except Exception as e:
                 print(f"[REGRESSAO] JSON inválido: {e}")
 

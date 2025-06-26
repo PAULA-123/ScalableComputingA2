@@ -81,10 +81,22 @@ def main():
                 continue
 
             try:
-                payload = json.loads(msg.value().decode("utf-8"))
-                batch = payload.get("batch", [])
-                registros.extend(batch)
-                print(f"📥 Recebidos {len(batch)} registros (total: {len(registros)})")
+                raw = msg.value().decode("utf-8")
+                payload = json.loads(raw)
+
+                if isinstance(payload, list):
+                    registros.extend(payload)
+                    print(f"📥 Recebidos {len(payload)} registros (total: {len(registros)})")
+                elif isinstance(payload, dict):
+                    if "batch" in payload and isinstance(payload["batch"], list):
+                        registros.extend(payload["batch"])
+                        print(f"📥 Recebidos {len(payload['batch'])} registros via 'batch' (total: {len(registros)})")
+                    else:
+                        registros.append(payload)
+                        print(f"📥 Recebido 1 registro (total: {len(registros)})")
+                else:
+                    print("⚠️ Payload inesperado:", payload)
+
             except Exception as e:
                 print(f"❌ JSON inválido: {e}")
 

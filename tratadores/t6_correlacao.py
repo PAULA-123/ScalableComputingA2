@@ -1,3 +1,4 @@
+import os
 import json
 import time
 import requests
@@ -6,13 +7,15 @@ from confluent_kafka import Consumer, KafkaError
 from pyspark.sql import SparkSession
 from pyspark.sql.types import StructType, StructField, FloatType, IntegerType
 
-# Configurações
-KAFKA_BOOTSTRAP_SERVERS = "kafka:9092"
-GROUP_ID = "tratador_correlacao_group"
-SOURCE_TOPIC = "grouped_secretary"
-API_URL = "http://api:8000/correlacao"
+# ==================== Configurações via Ambiente ====================
 
-# Schema dos dados agrupados
+KAFKA_BOOTSTRAP_SERVERS = os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092")
+GROUP_ID = os.environ.get("KAFKA_GROUP_ID", "tratador_correlacao_group")
+SOURCE_TOPIC = os.environ.get("KAFKA_SOURCE_TOPIC", "grouped_secretary")
+API_URL = os.environ.get("API_CORRELACAO_URL", "http://api:8000/correlacao")
+
+# ==================== Schema dos dados ====================
+
 schema = StructType([
     StructField("CEP", IntegerType(), True),
     StructField("media_diagnostico", FloatType(), True),
@@ -21,12 +24,13 @@ schema = StructType([
     StructField("media_populacao", FloatType(), True)
 ])
 
+# ==================== Função de Processamento ====================
+
 def processar_correlacoes(df, enviar_api: bool = True) -> None:
     print("\n📊 Correlações calculadas:")
     try:
         resultados: List[Dict[str, float]] = []
 
-        # Correlação entre escolaridade e vacinado
         esc_vac = df.stat.corr("media_escolaridade", "media_vacinado")
         resultados.append({
             "Escolaridade": round(esc_vac, 4),
@@ -44,6 +48,8 @@ def processar_correlacoes(df, enviar_api: bool = True) -> None:
 
     except Exception as e:
         print(f"❌ Erro ao calcular ou enviar correlações: {e}")
+
+# ==================== Loop Principal ====================
 
 def main():
     print(f"\n🔗 [CORRELACAO] Iniciando tratador de correlação")
