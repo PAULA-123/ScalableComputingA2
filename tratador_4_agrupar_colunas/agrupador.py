@@ -66,18 +66,16 @@ def agrupar_por_cep(df, origem):
             _sum("Diagnostico").alias("total_diagnostico"),
             avg("Escolaridade").alias("media_escolaridade"),
             first("Populacao").alias("media_populacao"),
-            first("Data").alias("data"),
             _sum("Vacinado").alias("total_vacinados")
         )
     elif origem == "hospital":
-        return df.groupBy("CEP").agg(
+        return df.groupBy("CEP", "Data").agg(
             _sum("Internado").alias("total_internados"),
             _sum("Idade").alias("soma_idade"),
             _sum("Sintoma1").alias("total_sintoma1"),
             _sum("Sintoma2").alias("total_sintoma2"),
             _sum("Sintoma3").alias("total_sintoma3"),
-            _sum("Sintoma4").alias("total_sintoma4"),
-            first("Data").alias("data")
+            _sum("Sintoma4").alias("total_sintoma4")
         )
 
 # Realiza o processamento: agrupamento por CEP, envio ao Kafka e à API
