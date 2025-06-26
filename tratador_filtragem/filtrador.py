@@ -1,115 +1,224 @@
 import json
 import time
 from confluent_kafka import Consumer, Producer, KafkaError
-
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import col
 from pyspark.sql.types import StructType, StructField, IntegerType, StringType
 
+# Configurações Kafka
 KAFKA_BOOTSTRAP_SERVERS = "kafka:9092"
-GROUP_ID = "tratador_filtro_group"
-SOURCE_TOPIC = "clean_secretary"
-DEST_TOPIC = "filtered_secretary"
+GROUP_ID = "filtrador_group"
 
-# Cria a sessão Spark (global)
-spark = SparkSession.builder.appName("tratador_filtragem").getOrCreate()
-spark.sparkContext.setLogLevel("ERROR")
+# Tópicos de entrada (clean) e saída (filtered)
+TOPICS_CONFIG = {
+    'secretary': {
+        'in': 'clean_secretary',
+        'out': 'filtered_secretary',
+        'schema': StructType([
+            StructField("Diagnostico", IntegerType(), True),
+            StructField("Vacinado", IntegerType(), True),
+            StructField("CEP", IntegerType(), True),
+            StructField("Escolaridade", IntegerType(), True),
+            StructField("Populacao", IntegerType(), True),
+            StructField("Data", StringType(), True)
+        ])
+    },
+    'hospital': {
+        'in': 'clean_hospital',
+        'out': 'filtered_hospital',
+        'schema': StructType([
+            StructField("ID_Hospital", IntegerType(), True),
+            StructField("Data", StringType(), True),
+            StructField("Internado", IntegerType(), True),
+            StructField("Idade", IntegerType(), True),
+            StructField("Sexo", IntegerType(), True),
+            StructField("CEP", IntegerType(), True),
+            StructField("Sintoma1", IntegerType(), True),
+            StructField("Sintoma2", IntegerType(), True),
+            StructField("Sintoma3", IntegerType(), True),
+            StructField("Sintoma4", IntegerType(), True)
+        ])
+    },
+    'oms': {
+        'in': 'clean_oms',
+        'out': 'filtered_oms',
+        'schema': StructType([
+            StructField("N_obitos", IntegerType(), True),
+            StructField("Populacao", IntegerType(), True),
+            StructField("CEP", IntegerType(), True),
+            StructField("N_recuperados", IntegerType(), True),
+            StructField("N_vacinados", IntegerType(), True),
+            StructField("Data", StringType(), True)
+        ])
+    }
+}
 
-# Defina o schema para os dados esperados (exemplo com campos CEP e Diagnostico)
-schema = StructType([
-    StructField("Populacao", IntegerType(), True),
-    StructField("Diagnostico", StringType(), True)
-])
-
-def filtrar_spark(df):
-    # Filtra CEP >= 0 e Diagnostico não nulo (exemplo simples)
+# Funções de filtro específicas para cada tipo
+def filter_secretary(df):
     return df.filter(
-        (col("Populacao") >= 0) &
-        (col("Diagnostico").isNotNull())
+        (col("Populacao") > 0) &          # quantidade populacional positiva
+        (col("CEP").isNotNull())          # CEP válido
     )
 
-def main():
-    print("\n" + "="*50)
-    print(" INICIANDO TRATADOR DE FILTRAGEM DE DADOS ")
-    print("="*50)
-    print(f"Conectando ao Kafka em: {KAFKA_BOOTSTRAP_SERVERS}")
-    print(f"Tópico de origem: {SOURCE_TOPIC}")
-    print(f"Tópico de destino: {DEST_TOPIC}")
-    print(f"Grupo de consumidores: {GROUP_ID}")
-    print("="*50 + "\n")
+def filter_hospital(df):
+    """Filtra dados hospitalares com regras específicas"""
+    return df.filter(
+        (col("CEP").isNotNull()) &    #CEP válido
+        (col("Idade").between(0, 120)) &    # Range de idade razoável
+        (
+            (col("Sintoma1") == 1) |   # Com pelo menos um sintoma
+            (col("Sintoma2") == 1) |
+            (col("Sintoma3") == 1) |
+            (col("Sintoma4") == 1)
+        )
+    )
+    
+def filter_oms(df):
+    filtered = df.filter(
+        (col("N_obitos") > 0) | # Apenas com óbitos ou
+        (col("N_recuperados") > 0) # recuperados
+    )
+    return filtered
 
+def process_batch(msg, spark, producer):
+    """Processa um batch completo de mensagens"""
+    try:
+        payload = json.loads(msg.value().decode('utf-8'))
+        if 'batch' not in payload:
+            print("Formato inválido: mensagem sem campo 'batch'")
+            return None
+
+        # Identifica o tipo de dados pelo tópico
+        data_type = next((k for k, v in TOPICS_CONFIG.items() if v['in'] == msg.topic()), None)
+        
+        if not data_type:
+            print(f"Tópico desconhecido: {msg.topic()}")
+            return None
+
+        config = TOPICS_CONFIG[data_type]
+        dados = payload['batch']
+        
+        # Cria DataFrame e aplica filtro
+        df = spark.createDataFrame(dados, schema=config['schema'])
+        
+        if data_type == 'secretary':
+            df_filtrado = filter_secretary(df)
+        elif data_type == 'hospital':
+            df_filtrado = filter_hospital(df)
+            # print("Filtrou hospital com ", len(df_filtrado))
+        elif data_type == 'oms':
+            df_filtrado = filter_oms(df)
+
+        # Prepara e envia o batch filtrado
+        batch_filtrado = [row.asDict() for row in df_filtrado.collect()]
+        
+        if batch_filtrado:
+            producer.produce(
+                config['out'],
+                json.dumps({"batch": batch_filtrado}).encode('utf-8')
+            )
+            print(f"[{data_type.upper()}] Batch filtrado enviado - {len(batch_filtrado)} registros")
+            return len(batch_filtrado)
+        
+        print(f"[{data_type.upper()}] Batch vazio após filtragem")
+        return 0
+        
+    except json.JSONDecodeError as e:
+        print(f"Erro ao decodificar JSON: {e}")
+    except Exception as e:
+        print(f"Erro inesperado ao processar batch: {e}")
+    return None
+
+def main():
+    spark = None
+    
+    # Configuração do Kafka Consumer
     consumer = Consumer({
         "bootstrap.servers": KAFKA_BOOTSTRAP_SERVERS,
         "group.id": GROUP_ID,
         "auto.offset.reset": "earliest",
-        "enable.auto.commit": False
+        "enable.auto.commit": False,
+        "max.poll.interval.ms": 300000
     })
-    producer = Producer({"bootstrap.servers": KAFKA_BOOTSTRAP_SERVERS})
 
-    def delivery_report(err, msg):
-        if err is not None:
-            print(f"❌ Falha ao enviar mensagem: {err}")
+    # Configuração do Kafka Producer
+    producer = Producer({
+        "bootstrap.servers": KAFKA_BOOTSTRAP_SERVERS,
+        "message.timeout.ms": 5000,
+        "queue.buffering.max.messages": 100000
+    })
 
-    consumer.subscribe([SOURCE_TOPIC])
-    print(f"🔍 Inscrito no tópico {SOURCE_TOPIC}. Aguardando mensagens...")
-
-    msg_count = 0
-    start_time = time.time()
+    # Inscreve nos tópicos de entrada
+    topics_in = [v['in'] for v in TOPICS_CONFIG.values()]
+    consumer.subscribe(topics_in)
+    print(f"Inscrito nos tópicos: {topics_in}\nAguardando mensagens...")
 
     try:
+        # Configuração do Spark
+        spark = SparkSession.builder \
+            .appName("filtrador") \
+            .config("spark.sql.shuffle.partitions", "2") \
+            .config("spark.driver.memory", "1g") \
+            .config("spark.executor.memory", "1g") \
+            .config("spark.driver.extraJavaOptions", "-Dio.netty.tryReflectionSetAccessible=true") \
+            .getOrCreate()
+            
+        spark.sparkContext.setLogLevel("ERROR")
+        spark.sparkContext.setLocalProperty("spark.scheduler.pool", "production")
+
+        batch_count = total_processed = 0
+        start_time = time.time()
+        batch_messages = []
+        BATCH_SIZE = 50  # Número de mensagens para agrupar antes de processar
+
         while True:
             msg = consumer.poll(timeout=1.0)
+            
             if msg is None:
-                continue
-            if msg.error():
-                if msg.error().code() == KafkaError._PARTITION_EOF:
-                    continue
-                else:
-                    print(f"❌ Erro no consumidor Kafka: {msg.error()}")
-                    continue
-
-            msg_count += 1
-            try:
-                dado = json.loads(msg.value().decode('utf-8'))
-                print(f"[FILTRAGEM] Mensagem recebida: {dado}")
-
-                # Cria DataFrame com uma linha
-                df = spark.createDataFrame([dado], schema=schema)
-
-                # Aplica filtro Spark
-                df_filtrado = filtrar_spark(df)
-
-                resultado = df_filtrado.collect()
-
-                if resultado:
-                    dado_filtrado = resultado[0].asDict()
-                    print(f"[FILTRAGEM] Publicando filtrado: {dado_filtrado}")
-
-                    producer.produce(
-                        DEST_TOPIC,
-                        json.dumps(dado_filtrado).encode('utf-8'),
-                        callback=delivery_report
-                    )
+                if batch_messages:  # Processa mensagens pendentes
+                    processed = sum(process_batch(m, spark, producer) or 0 for m in batch_messages)
+                    total_processed += processed
+                    batch_count += 1
                     producer.flush()
-                else:
-                    print(f"[FILTRAGEM] Registro descartado: {dado}")
+                    consumer.commit()
+                    batch_messages = []
+                    print(f"Lote {batch_count} processado - {processed} registros")
+                continue
 
-                consumer.commit(asynchronous=False)
+            if msg.error():
+                if msg.error().code() != KafkaError._PARTITION_EOF:
+                    print(f"Erro no consumidor: {msg.error()}")
+                continue
 
-            except json.JSONDecodeError as e:
-                print(f"❌ Erro ao decodificar JSON: {e}")
-            except Exception as e:
-                print(f"❌ Erro inesperado: {e}")
+            batch_messages.append(msg)
+            if len(batch_messages) >= BATCH_SIZE:
+                processed = sum(process_batch(m, spark, producer) or 0 for m in batch_messages)
+                total_processed += processed
+                batch_count += 1
+                producer.flush()
+                consumer.commit()
+                batch_messages = []
+                print(f"Lote {batch_count} processado - {processed} registros")
 
-    except KeyboardInterrupt:
-        print("\n" + "="*50)
-        print(" INTERRUPÇÃO SOLICITADA - ENCERRANDO CONSUMER ")
-        print(f"Total de mensagens processadas: {msg_count}")
-        print(f"Tempo de execução: {time.time() - start_time:.2f} segundos")
-        print("="*50)
+    # except KeyboardInterrupt:
+    #     print("\nInterrupção solicitada")
+    except Exception as e:
+        print(f"Erro crítico: {str(e)}")
     finally:
+        # Estatísticas finais
+        duration = time.time() - start_time
+        print(f"\nEstatísticas finais:")
+        print(f"- Total de lotes processados: {batch_count}")
+        print(f"- Total de registros filtrados: {total_processed}")
+        print(f"- Tempo total: {duration:.2f} segundos")
+        print(f"- Throughput: {total_processed/max(duration, 1):.2f} registros/segundo")
+
+        # Libera recursos
+        producer.flush()
         consumer.close()
-        print("✅ Conexão com Kafka encerrada corretamente")
+        if spark:
+            spark.stop()
+        print("Recursos liberados")
 
 if __name__ == "__main__":
     main()

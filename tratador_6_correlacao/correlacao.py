@@ -21,17 +21,16 @@ from pyspark.sql.types import StructType, StructField, FloatType, IntegerType, S
 # Configurações de conexão Kafka e API
 KAFKA_BOOTSTRAP_SERVERS = "kafka:9092"
 GROUP_ID = "tratador_correlacao_group"
-SOURCE_TOPIC = "grouped_secretary"
+SOURCE_TOPICS = ["grouped_secretary", "grouped_merge"]
 API_URL = "http://api:8000/correlacao"
 
 # Esquema dos dados esperados no batch agrupado
 schema = StructType([
     StructField("CEP", IntegerType(), True),
-    StructField("total_diagnostico", FloatType(), True),
-    StructField("media_escolaridade", FloatType(), True),
-    StructField("media_populacao", FloatType(), True),
-    StructField("data", StringType(), True),
-    StructField("total_vacinados", FloatType(), True)
+    StructField("Total_Diagnosticos", FloatType(), True),
+    StructField("Media_escolaridade", FloatType(), True),
+    StructField("Total_Vacinados", FloatType(), True),
+    StructField("Populacao", FloatType(), True)
 ])
 
 # Função para calcular a correlação e enviar para a API
@@ -71,7 +70,7 @@ def main():
     })
 
     # Inscreve no tópico com os dados agrupados
-    consumer.subscribe([SOURCE_TOPIC])
+    consumer.subscribe(SOURCE_TOPICS)
 
     try:
         while True:

@@ -13,9 +13,9 @@ O objetivo é permitir um pipeline de ingestão flexível, balanceado e escaláv
 import json
 import time
 import os
-from confluent_kafka import Consumer, KafkaError
+from confluent_kafka import Consumer, KafkaError, Producer
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import col, sum as spark_sum
+from pyspark.sql.functions import col, avg,first, sum as spark_sum
 from pyspark.sql.types import StructType, StructField, IntegerType, StringType
 
 # Configuração
@@ -23,12 +23,14 @@ KAFKA_BOOTSTRAP_SERVERS = "kafka:9092"
 GROUP_ID = "tratador_merge_group"
 
 # Tópicos para dados em tempo real
-TOPIC_HOSPITAL_B = "raw_hospital_b"
-TOPIC_SECRETARY_B = "raw_secretary_b"
+TOPIC_HOSPITAL_B = "filtered_hospital"
+TOPIC_SECRETARY_B = "filtered_secretary"
 
 # Tópicos para dados  históricos
 # TOPIC_HOSPITAL_B = "raw_hospital_h"
 # TOPIC_SECRETARY_B = "raw_secretary_h"
+
+producer = Producer({"bootstrap.servers": KAFKA_BOOTSTRAP_SERVERS})
 
 spark = SparkSession.builder.appName("tratador_merge_batch").getOrCreate()
 spark.sparkContext.setLogLevel("ERROR")
@@ -76,7 +78,7 @@ def processar_batch(dados_hosp, dados_secr):
     # Agrega informações hospitalares por CEP
     agg_hosp = df_hosp.groupBy("CEP").agg(
         spark_sum("Internado").alias("Total_Internados"),
-        spark_sum("Idade").alias("Soma_Idade"),
+        avg("Idade").alias("Media_Idade"),
         spark_sum("Sintoma1").alias("Total_Sintoma1"),
         spark_sum("Sintoma2").alias("Total_Sintoma2"),
         spark_sum("Sintoma3").alias("Total_Sintoma3"),
@@ -87,8 +89,8 @@ def processar_batch(dados_hosp, dados_secr):
     agg_secr = df_secr.groupBy("CEP").agg(
         spark_sum("Diagnostico").alias("Total_Diagnosticos"),
         spark_sum("Vacinado").alias("Total_Vacinados"),
-        spark_sum("Escolaridade").alias("Soma_Escolaridade"),
-        spark_sum("Populacao").alias("Soma_Populacao")
+        avg("Escolaridade").alias("Media_escolaridade"),
+        first("Populacao").alias("Populacao")
     )
 
     # Faz o merge das duas agregações, mantendo todos os CEPs
@@ -180,6 +182,15 @@ def main():
                     msg_count += 1
                     df_merge = processar_batch(dados_hosp_normal, dados_secr_normal)
 
+                    # Converte resultado para JSON com tag de source
+                    json_batch = df_merge.toJSON().map(lambda x: json.loads(x)).collect()
+                    payload = json.dumps({"batch": json_batch, "source": "merge"})
+
+                    # Envia para tópico específico de merge (crie esse tópico no seu Kafka)
+                    producer.produce("grouped_merge", payload.encode("utf-8"))
+                    producer.flush()
+                    print("Resultado do merge enviado para tópico grouped_merge")
+
                     print(f"Merge NORMAL com {df_merge.count()} linhas")
 
                     # Limpa buffers e marca commit
@@ -190,6 +201,15 @@ def main():
                 # Quando os dados históricos de ambas as fontes chegaram, processa o merge final
                 if fim_hosp and fim_secr:
                     df_merge = processar_batch(dados_hosp_historico, dados_secr_historico)
+
+                    # Converte resultado para JSON com tag de source
+                    json_batch = df_merge.toJSON().map(lambda x: json.loads(x)).collect()
+                    payload = json.dumps({"batch": json_batch, "source": "merge"})
+
+                    # Envia para tópico específico de merge (crie esse tópico no seu Kafka)
+                    producer.produce("grouped_merge", payload.encode("utf-8"))
+                    producer.flush()
+                    print("Resultado do merge histórico enviado para tópico grouped_merge")
 
                     print(f"Merge HISTÓRICO FINAL com {df_merge.count()} linhas")
 

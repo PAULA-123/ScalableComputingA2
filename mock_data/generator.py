@@ -13,9 +13,9 @@ INTERVALO_CICLO = float(os.getenv("INTERVALO_CICLO", 100.0))
 
 KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092")
 
-TOPIC_OMS = os.getenv("TOPIC_OMS", "raw_oms")
-TOPIC_HOSPITAL = os.getenv("TOPIC_HOSPITAL", "raw_hospital")
-TOPIC_SECRETARY = os.getenv("TOPIC_SECRETARY", "raw_secretary")
+TOPIC_OMS = os.getenv("TOPIC_OMS", "raw_oms_b")
+TOPIC_HOSPITAL = os.getenv("TOPIC_HOSPITAL", "raw_hospital_b")
+TOPIC_SECRETARY = os.getenv("TOPIC_SECRETARY", "raw_secretary_b")
 
 producer = Producer({"bootstrap.servers": KAFKA_BOOTSTRAP_SERVERS})
 
@@ -60,8 +60,8 @@ def oms_generate_mock(rows=None, output_file="databases_mock/oms_mock.json"):
             "Data": gerar_data_aleatoria_na_semana()
         }
         dados.append(registro)
-
-    kafka_send(TOPIC_OMS, dados)
+    mensagem = {"batch": dados, "source": "oms", "type": "normal"}
+    kafka_send(TOPIC_OMS, mensagem)
     print(f"[OMS] {rows} registros enviados para tópico '{TOPIC_OMS}'")
 
 # ==================== HOSPITAL ====================
@@ -92,7 +92,8 @@ def hospital_generate_mock(rows=None, output_file="databases_mock/hospital_mock.
         }
         dados.append(registro)
 
-    kafka_send(TOPIC_HOSPITAL, dados)
+    mensagem = {"batch": dados, "source": "hospital", "type": "normal"}
+    kafka_send(TOPIC_HOSPITAL, mensagem)
     print(f"[HOSPITAL] {rows} registros enviados para tópico '{TOPIC_HOSPITAL}'")
 
 # ==================== SECRETARIA ====================
@@ -114,8 +115,9 @@ def secretary_generate_mock(rows=None, output_file="databases_mock/secretary_moc
             "Data": gerar_data_aleatoria_na_semana()
         }
         dados.append(registro)
-
-    kafka_send(TOPIC_SECRETARY, dados)
+        
+    mensagem = {"batch": dados, "source": "secretary", "type": "normal"}
+    kafka_send(TOPIC_SECRETARY, mensagem)
     print(f"[SECRETARIA] {rows} registros enviados para tópico '{TOPIC_SECRETARY}'")
 
 # ==================== LOOP ====================
