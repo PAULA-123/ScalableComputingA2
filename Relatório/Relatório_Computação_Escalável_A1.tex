@@ -486,6 +486,36 @@ Essa arquitetura baseada em containers facilita a implantação, escalabilidade 
 
 
 \section{Ambiente Nuvem - AWS}
+\section{Implementação em Nuvem na AWS}
+
+Para a implementação em nuvem, utilizamos serviços da Amazon AWS fornecidos pela conta \textit{AWS Academy}. Algumas escolhas de serviços e soluções adotadas decorreram das limitações dessa conta, como permissões e restrições de serviços disponíveis. Outras decisões foram motivadas pela própria arquitetura do pipeline.
+
+Nossa arquitetura em nuvem busca ser o mais semelhante possível ao ambiente local, tanto por razões arquiteturais quanto por razões de negócio. Do ponto de vista de negócios, é vantajoso que o ambiente de produção na nuvem se assemelhe ao ambiente local, pois isso facilita a realização de testes, otimizações e mudanças no projeto localmente, sem grandes esforços para replicá-las na nuvem.
+
+Foram utilizados os serviços \textbf{ECS}, \textbf{ECR} e \textbf{EC2} para a implementação em nuvem. A estrutura da aplicação utiliza uma estratégia de \textit{pub/sub}, e, do ponto de vista dos tratadores, essa abordagem se assemelha a uma arquitetura de microserviços, o que justifica a arquitetura proposta.
+
+\subsection{Gerador de Dados}
+
+Para o gerador de dados, foi utilizado um serviço do \textbf{ECS}, o que permite controlar a quantidade de produtores e realizar testes de carga. O gerador de dados possui um \textit{cluster} próprio, no qual foi definido um serviço responsável pela geração dos dados.
+
+O gerador envia dados diretamente para o \textit{broker Kafka}. Idealmente, utilizaríamos o serviço \textbf{Amazon Managed Streaming for Apache Kafka (Amazon MSK)}. No entanto, esse serviço está indisponível na versão de aluno da conta. Como alternativa, o \textbf{Kafka} foi implementado em uma instância \textbf{EC2}. Ressaltamos que não utilizamos o Kafka em um ECS com instância EC2 devido à ausência da permissão \texttt{AmazonEC2ContainerServiceforEC2Role} na conta. Para evitar problemas com endereçamento IP ao alternar sessões, configuramos um \textbf{Elastic IP}.
+
+\subsection{Tratadores}
+
+Para os tratadores, foram criadas diversas \textbf{Task Definitions}, uma para cada tratador, onde configuramos os recursos computacionais (CPU e memória) conforme a carga de processamento esperada. Por exemplo, os tratadores de limpeza e filtragem, localizados no início da pipeline e que processam grandes volumes de dados, receberam mais recursos. Em contrapartida, tratadores com menor volume de dados receberam menos recursos.
+
+\subsection{API e Dashboard}
+
+A \textbf{API} e o \textbf{Dashboard} também foram executados via ECS. No entanto, não foi configurado um \textbf{Elastic IP} para esses serviços, o que aumenta a complexidade, pois o ECS gera IPs dinâmicos. Melhorias futuras podem incluir o uso de ferramentas como:
+
+\begin{itemize}
+    \item \textbf{Application Load Balancer (ALB)}
+    \item \textbf{Network Load Balancer (NLB)} com IP Elástico
+    \item \textbf{AWS PrivateLink}
+    \item \textbf{NAT Gateway} com IP Elástico
+\end{itemize}
+
+A escolha entre essas soluções depende do objetivo desejado (alta disponibilidade, segurança, desempenho, etc.).
 
 
 \section{Pipeline}
