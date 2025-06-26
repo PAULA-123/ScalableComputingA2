@@ -147,7 +147,6 @@ def main():
     producer = Producer({"bootstrap.servers": KAFKA_BOOTSTRAP_SERVERS})
 
     consumer.subscribe(list(TOPICS_IN.values()))
-    print("COMEÇOU A LIMPEZA")
     print(f"Inscrito nos tópicos: {list(TOPICS_IN.values())}. Aguardando mensagens...")
 
     try:
@@ -166,7 +165,6 @@ def main():
 
             msg_count += 1
             result = process_batch(msg, spark, producer)
-            print("LIMPOU", flush=True)
             
             if result is not None:
                 processed_count += result

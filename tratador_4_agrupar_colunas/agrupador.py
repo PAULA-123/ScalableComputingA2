@@ -62,7 +62,7 @@ schema_hospital = StructType([
 # Agrupa os dados por CEP com diferentes lógicas para cada origem
 def agrupar_por_cep(df, origem):
     if origem == "secretary":
-        return df.groupBy("CEP").agg(
+        return df.groupBy("CEP", "Data").agg(
             _sum("Diagnostico").alias("total_diagnostico"),
             avg("Escolaridade").alias("media_escolaridade"),
             first("Populacao").alias("media_populacao"),
