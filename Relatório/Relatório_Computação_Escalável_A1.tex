@@ -157,7 +157,7 @@ O ambiente é definido via \texttt{docker-compose.yml}, que orquestra múltiplos
   \item \textbf{tratador-merge}: Responsável por unificar dados vindos de diferentes tratadores em um único artefato de saída.
     \item \textbf{tratador-agrupar-colunas}: Agrupar variáveis relacionadas e criar estruturas auxiliares para análise estatística posterior.
     \item \textbf{tratador-correlacao}: Calcular correlação entre variáveis (ex: vacinação vs. número de casos).
-    \item \textbf{tratador-desvio_padrao}: Avaliar a variabilidade dos dados, detectar instabilidades e anomalias.
+    \item \textbf{tratador-desvio-padrao}: Avaliar a variabilidade dos dados, detectar instabilidades e anomalias.
     \item \textbf{tratador-mediamovel}: Aplicar suavização dos dados no tempo, útil para observar tendências (ex: 7 dias, 14 dias).
     \item \textbf{tratador-regressao}: Aplicar modelos estatísticos para prever variáveis (ex: número de casos futuros).
 \end{itemize}
@@ -234,7 +234,7 @@ O esquema esperado é rigorosamente definido com seis campos: diagnóstico, vaci
 
 Os dados são processados em lotes (\textit{batches}) de n registros. Cada lote é transformado em um DataFrame Spark, filtrado conforme os critérios acima, e os registros válidos são serializados em JSON e enviados para os tópicos seguinte do pipeline,  \texttt{clean\_secretary} \texttt{clean\_hospital} e \texttt{clean\_oms}. Esse processamento por lote permite balancear desempenho com controle de qualidade e manter o paralelismo nativo do Spark.
 
-Embora o Redis esteja previsto na arquitetura geral como armazenamento auxiliar, este tratador em específico não realiza operações diretas sobre ele. Seu foco é assegurar que apenas dados limpos sigam adiante para tratadores analíticos posteriores.
+% Embora o Redis esteja previsto na arquitetura geral como armazenamento auxiliar, este tratador em específico não realiza operações diretas sobre ele. Seu foco é assegurar que apenas dados limpos sigam adiante para tratadores analíticos posteriores.
 
 
 
@@ -244,8 +244,9 @@ Este módulo é responsável pela filtragem contínua dos dados previamente limp
 
 A filtragem aplicada segue os seguintes critérios:
 \begin{itemize}
-    \item \texttt{População} superior a 1000, descartando regiões com baixa significância estatística;
-    \item presença obrigatória dos campos \texttt{Diagnostico} e \texttt{CEP};
+    \item \texttt{População} superior a 500, descartando regiões com baixa significância estatística;
+    \item presença obrigatória não nula dos campos \texttt{Número de Óbitos} e/ou \texttt{Número de Recuperados} na fonte OMS;
+    \item Verifica a coluna idade esta no intervalo de $$[0,120]$
     \item o registro deve conter pelo menos um evento relevante, ou seja, estar vacinado (\texttt{Vacinado} = 1) ou ter recebido diagnóstico (\texttt{Diagnostico} = 1).
 \end{itemize}
 
@@ -269,8 +270,8 @@ Os dados são consumidos de dois tópicos Kafka simultaneamente. Cada lote receb
 
 O processamento consiste em:
 \begin{enumerate}
-    \item Agregar as informações hospitalares por \texttt{CEP}, somando variáveis como número de internados, soma de idades e presença de sintomas.
-    \item Agregar os dados da secretaria por \texttt{CEP}, computando totais de diagnósticos, vacinados, escolaridade e população.
+    \item Agregar as informações hospitalares por \texttt{CEP}, somando variáveis como número de internados presença de sintomas.
+    \item Agregar os dados da secretaria por \texttt{CEP}, computando totais de diagnósticos, vacinados, média de escolaridade e idade dos pacientes.
     \item Unir os dois conjuntos agregados com uma junção externa (\texttt{outer join}), preservando todos os \texttt{CEPs} mesmo quando presentes apenas em uma das fontes.
 \end{enumerate}
 
@@ -282,14 +283,13 @@ Esse modelo híbrido de ingestão torna o pipeline flexível, permitindo tanto r
 
 O quarto tratador realiza o agrupamento estatístico dos dados filtrados, consolidando métricas por região geográfica (\texttt{CEP}). Este agrupamento é executado em lote com Apache Spark, preservando o paralelismo e escalabilidade do processamento.
 
-A cada lote de mensagens Kafka recebidas dos tópicos \texttt{filtered\_hospital},  \texttt{filtered\_oms} e  \texttt{filtered\_secretary}, os dados são lidos como JSON e convertidos em um \textit{DataFrame} tipado. Em seguida, são agregados com base no campo \texttt{CEP}, produzindo estatísticas como:
+A cada lote de mensagens Kafka recebidas dos tópicos \texttt{filtered\_hospital},  \texttt{filtered\_oms} e  \texttt{filtered\_secretary}, os dados são lidos como JSON e convertidos em um \textit{DataFrame} tipado. Em seguida, são agregados com base no campo \texttt{CEP} e \texttt{Data}, produzindo estatísticas como:
 \begin{itemize}
-    \item média de diagnósticos (\texttt{Diagnostico});
-    \item média de vacinação (\texttt{Vacinado});
+    \item soma de diagnósticos positivos (\texttt{Diagnostico});
+    \item soma da variável binária de sintoma (\texttt{Sintoma 1,2,3,4});
     \item média de escolaridade (\texttt{Escolaridade});
-    \item média da população declarada;
+    \item população declarada da região;
     \item total de vacinados por CEP;
-    \item e uma data representativa.
 \end{itemize}
 
 O resultado é simultaneamente enviado para dois destinos: o tópico Kafka \texttt{grouped\_secretary}, \texttt{grouped\_hospital} e \texttt{grouped\_oms} que serve de insumo para etapas analíticas posteriores, e uma API REST, que recebe os dados agregados para persistência ou visualização.
@@ -300,17 +300,17 @@ A estratégia de processamento por lotes, combinada com o uso de funções de ag
 
 \subsection{Tratador 5: Média Populacional e Alertas}
 
-O Tratador 5 é responsável por calcular a média populacional dos registros recebidos da OMS e gerar alertas com base nessa métrica. Seu principal objetivo é destacar regiões com população acima da média por meio de marcações automáticas no fluxo de dados.
+O Tratador 5 é responsável por calcular a média do número de óbitos de todas as regiões dos registros recebidos da OMS e gerar alertas com base nessa métrica. Seu principal objetivo é destacar regiões com fatalidade acima da média por meio de marcações automáticas no fluxo de dados.
 
-Este módulo consome mensagens em lote do tópico Kafka \texttt{raw\_oms}, contendo dados da Organização Mundial da Saúde (OMS), como número de óbitos, recuperados, vacinados e população por \texttt{CEP}. O processamento é feito em modo \textit{batch}, utilizando Apache Spark para tratar e transformar os dados.
+Este módulo consome mensagens em lote do tópico Kafka \texttt{filtered\_oms}, contendo dados da Organização Mundial da Saúde (OMS), como número de óbitos, recuperados, vacinados e população por \texttt{CEP}. O processamento é feito em modo \textit{batch}, utilizando Apache Spark para tratar e transformar os dados.
 
 O funcionamento do tratador envolve os seguintes passos:
 \begin{enumerate}
     \item Conversão do lote Kafka em um \textit{DataFrame} com schema tipado.
-    \item Cálculo da média da população dos registros do lote.
+    \item Cálculo da média de mortes dos registros do lote.
     \item Classificação de cada linha com base na comparação entre a população local e a média:
         \begin{itemize}
-            \item Se a população do \texttt{CEP} for maior que a média, o campo \texttt{Alerta} recebe o valor \texttt{Vermelho};
+            \item Se óbitos do \texttt{CEP} for maior que a média, o campo \texttt{Alerta} recebe o valor \texttt{Vermelho};
             \item Caso contrário, o alerta é classificado como \texttt{Verde}.
         \end{itemize}
     \item Geração de um arquivo consolidado no formato JSON contendo os dados com o alerta marcado.
@@ -326,17 +326,10 @@ Este tratador oferece uma camada adicional de inteligência ao pipeline, destaca
 
 Este módulo é responsável por calcular correlações estatísticas entre variáveis de interesse a partir dos dados agregados por CEP. Utilizando a função \texttt{corr} do Spark, ele avalia a dependência linear entre atributos como média de escolaridade e média de vacinação, aproveitando o paralelismo do Spark para garantir desempenho mesmo com grandes volumes de dados.
 
-O processo funciona em modo batch, consumindo dados dos tópicos Kafka \\ \texttt{grouped\_hospital}, \texttt{grouped\_secretary} e \texttt{grouped\_oms}, e acumulando registros até um limite pré-definido. A cada lote, os dados são convertidos em um DataFrame tipado (com schema explícito), o que assegura integridade e desempenho durante os cálculos estatísticos.
+O processo funciona em modo batch, consumindo dados dos tópicos Kafka \\ \texttt{grouped\_hospital}, \texttt{grouped\_secretary} e \texttt{grouped\_oms}. A cada lote, os dados são convertidos em um DataFrame tipado (com schema explícito), o que assegura integridade e desempenho durante os cálculos estatísticos.
 
-Os resultados das correlações são transformados em JSON e enviados para uma API intermediária responsável por alimentar o dashboard com insights visuais. Embora o código atual esteja configurado para calcular apenas a correlação entre \texttt{media\_escolaridade} e \texttt{media\_vacinado}, a estrutura do módulo é extensível para múltiplas combinações de variáveis no futuro.
+Os resultados das correlações são transformados em JSON e enviados para uma API intermediária responsável por alimentar o dashboard com insights visuais. Embora o código atual esteja configurado para calcular apenas a correlação entre \texttt{media\_escolaridade} e \texttt{total\_vacinado}, a estrutura do módulo é extensível para múltiplas combinações de variáveis no futuro.
 
-
-
-
-
-
-
-Este módulo calcula correlações estatísticas entre variáveis relevantes — como escolaridade e vacinação — utilizando operações Spark paralelizáveis. Os resultados são enviados para uma API intermediária e exibidos no dashboard final como insights visuais.
 
 
 \subsection{Tratador 7: Desvio Padrão}
@@ -362,7 +355,7 @@ Este módulo executa uma regressão linear multivariada utilizando variáveis co
 
 \subsection{Tratador 9: Média Móvel}
 
-Este tratador é responsável por calcular a média móvel da taxa de diagnósticos ao longo do tempo, com o objetivo de suavizar flutuações diárias e identificar tendências epidemiológicas. Ele consome dados do tópico \texttt{filtered\_secretary}, realiza agregações por data e aplica uma janela deslizante de 7 dias utilizando a API de janelas do Spark (\texttt{Window}).
+Este tratador é responsável por calcular a média móvel da taxa de diagnósticos ao longo do tempo, com o objetivo de suavizar flutuações diárias e identificar tendências epidemiológicas. Ele consome dados do tópico \texttt{grouped\_secretary}, realiza agregações por data e aplica uma janela deslizante de 7 dias utilizando a API de janelas do Spark (\texttt{Window}).
 
 O campo \texttt{Data}, inicialmente em formato de string (\texttt{dd-MM-yyyy}), é convertido para o tipo de data nativo do Spark para permitir operações temporais. Em seguida, os diagnósticos são agrupados por data e sua média é calculada. Sobre essa série temporal, é aplicada uma janela móvel de 7 dias que gera, para cada dia, a média dos valores nos últimos sete dias (inclusive o atual), produzindo uma curva suavizada de evolução dos casos.
 
@@ -479,7 +472,7 @@ O ambiente do sistema é orquestrado com \textit{Docker Compose} na versão 3.9,
 \begin{itemize}
     \item Todos os serviços configuram políticas de reinício automático (\texttt{restart: unless-stopped}), garantindo alta disponibilidade.
     \item Os serviços dependem uns dos outros via \texttt{depends\_on} com checagem de saúde, garantindo a ordem correta de inicialização.
-    \item Volumes nomeados são utilizados para persistência dos dados de Zookeeper, Kafka e Redis.
+    \item Volumes nomeados são utilizados para persistência dos dados de Zookeeper, Kafka.
 \end{itemize}
 
 Essa arquitetura baseada em containers facilita a implantação, escalabilidade e manutenção do pipeline completo, permitindo replicação consistente do ambiente em diferentes máquinas ou clusters.
@@ -569,7 +562,7 @@ Antes de iniciar, certifique-se de que os seguintes softwares estejam instalados
     docker-compose up --build
     \end{verbatim}
 
-    Este comando compila as imagens necessárias e inicia os contêineres do Kafka, Redis, mock generator, tratadores, API e dashboard.
+    Este comando compila as imagens necessárias e inicia os contêineres do Kafka, mock generator, tratadores, API e dashboard.
 
     \item \textbf{Verifique o status dos serviços:}
     \begin{verbatim}
