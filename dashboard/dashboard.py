@@ -209,48 +209,6 @@ def main_dashboard():
                     st.bar_chart(data=df_desvios.set_index("variavel")["desvio"])
                 
                 # ============================
-                # REGRESSÃO LINEAR
-                # ============================                
-                df_reg = carregar_dados("/regressao")
-                df_merge_reg = carregar_dados("/merge-cep")
-
-                if not df_reg.empty and not df_merge_reg.empty:
-                    st.header("Regressão Linear - Escolaridade vs Vacinação")
-                    
-                    st.subheader("Coeficientes Estimados")
-                    st.dataframe(df_reg)
-
-                    ultima = df_reg.iloc[-1]
-                    beta0, beta1 = ultima["beta0"], ultima["beta1"]
-
-                    st.metric("Intercepto (β₀)", f"{beta0:.4f}")
-                    st.metric("Inclinação (β₁)", f"{beta1:.4f}")
-
-                    st.markdown(f"""
-                    **Equação estimada:**  
-                    `Total_Vacinados = {beta0:.4f} + {beta1:.4f} * Media_Escolaridade`
-                    """)
-
-                    st.subheader("Visualização da Regressão Linear")
-
-                    df_plot = df_merge_reg[["Media_Escolaridade", "Total_Vacinados"]].dropna()
-                    df_plot = df_plot.sort_values("Media_Escolaridade")
-
-                    # Geração dos pontos da reta estimada
-                    x_vals = df_plot["Media_Escolaridade"]
-                    y_vals = beta0 + beta1 * x_vals
-
-                    fig, ax = plt.subplots(figsize=(10, 6))
-                    ax.scatter(df_plot["Media_Escolaridade"], df_plot["Total_Vacinados"], color="blue", alpha=0.6, label="Observações")
-                    ax.plot(x_vals, y_vals, color="red", linewidth=2, label="Reta Estimada")
-
-                    ax.set_xlabel("Média de Escolaridade")
-                    ax.set_ylabel("Total de Vacinados")
-                    ax.set_title("Regressão Linear: Vacinados vs Escolaridade")
-                    ax.legend()
-                    st.pyplot(fig)
-                
-                # ============================
                 # MÉDIA MÓVEL
                 # ============================
                 df_media = carregar_dados("/media-movel")
@@ -267,68 +225,11 @@ def main_dashboard():
                     ax.set_title('Tendência de Óbitos (Suavizada)')
                     ax.legend()
                     st.pyplot(fig)
-                    
-                # ============================
-                # DADOS HISTÓRICOS
-                # ============================
-                df_historico = carregar_dados("/historico")
-                if not df_historico.empty:
-                    st.header("Análise Histórica")
-                    
-                    # Processa os dados históricos
-                    df_historico['AnoMes'] = pd.to_datetime(df_historico['AnoMes'], format='%Y%m')
-                    df_historico = df_historico.sort_values('AnoMes')
-                    
-                    # Cria abas para diferentes visualizações
-                    tab1, tab2, tab3 = st.tabs(["Internações", "Vacinação", "Sintomas"])
-                    
-                    with tab1:
-                        fig, ax = plt.subplots(figsize=(12, 6))
-                        ax.plot(df_historico['AnoMes'], df_historico['Total_Internados'], 
-                                label='Internações', color='red')
-                        ax.set_title('Evolução Mensal de Internações')
-                        ax.set_xlabel('Mês/Ano')
-                        ax.set_ylabel('Número de Internações')
-                        ax.grid(True, linestyle='--', alpha=0.7)
-                        ax.legend()
-                        st.pyplot(fig)
-                        
-                    with tab2:
-                        fig, ax = plt.subplots(figsize=(12, 6))
-                        ax.bar(df_historico['AnoMes'], df_historico['Total_Vacinados'], 
-                            color='green', alpha=0.7, label='Vacinados')
-                        ax.set_title('Evolução Mensal de Vacinação')
-                        ax.set_xlabel('Mês/Ano')
-                        ax.set_ylabel('Número de Vacinados')
-                        ax.grid(True, linestyle='--', alpha=0.7)
-                        ax.legend()
-                        st.pyplot(fig)
-                        
-                    with tab3:
-                        fig, ax = plt.subplots(figsize=(12, 6))
-                        sintomas = ['Total_Sintoma1', 'Total_Sintoma2', 'Total_Sintoma3', 'Total_Sintoma4']
-                        labels = ['Febre', 'Tosse', 'Dificuldade Respiratória', 'Dor de Cabeça']
-                        
-                        bottom = None
-                        for i, sintoma in enumerate(sintomas):
-                            ax.bar(df_historico['AnoMes'], df_historico[sintoma], 
-                                bottom=bottom, label=labels[i])
-                            if bottom is None:
-                                bottom = df_historico[sintoma]
-                            else:
-                                bottom += df_historico[sintoma]
-                        
-                        ax.set_title('Distribuição Mensal de Sintomas')
-                        ax.set_xlabel('Mês/Ano')
-                        ax.set_ylabel('Número de Casos')
-                        ax.legend()
-                        ax.grid(True, linestyle='--', alpha=0.7)
-                        st.pyplot(fig)
 
-                        if auto_refresh:
-                            time.sleep(refresh_interval)
-                        else:
-                            break
+        if auto_refresh:
+            time.sleep(refresh_interval)
+        else:
+            break
 
 if __name__ == "__main__":
     main_dashboard()

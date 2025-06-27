@@ -25,7 +25,7 @@ for ilha in cep_ilhas:
 def gerar_data_aleatoria_na_semana():
     hoje = datetime.today()
     segunda = hoje - timedelta(days=hoje.weekday())
-    dia = random.randint(0, 200)
+    dia = random.randint(0, 6)
     return (segunda + timedelta(days=dia)).strftime("%d-%m-%Y")
 
 # Gerar o arquivo que simula o histórico de dados de Hospital
