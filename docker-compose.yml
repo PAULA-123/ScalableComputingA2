@@ -193,6 +193,28 @@ services:
       timeout: 10s
       retries: 3
 
+  tratador-desvio:
+    build:
+      context: ./tratador_desviopadrao
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - GROUP_ID=tratador_desvio_group
+      - API_URL=http://api:8000/desvios
+      - OUTPUT_FILE=/app/databases_mock/desvio.json
+      - PYTHONUNBUFFERED=1
+      - DEBUG=true
+    depends_on:
+      - kafka
+      - tratador-merge
+    volumes:
+      - ./databases_mock:/app/databases_mock:z
+      - ./logs/desvio:/app/logs
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+
+
   api:
     build:
       context: ./api
