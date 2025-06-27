@@ -60,6 +60,19 @@ class MediaMovel(BaseModel):
     Data: str
     media_movel: float
 
+class Historico(BaseModel):
+    AnoMes: str
+    Total_Internados: int
+    Media_Idade: float
+    Total_Sintoma1: int
+    Total_Sintoma2: int
+    Total_Sintoma3: int
+    Total_Sintoma4: int
+    Total_Diagnosticos: int
+    Total_Vacinados: int
+    Media_Escolaridade: float
+    Media_Populacao: float
+
 # ==========================
 # DADOS EM MEMÓRIA
 # ==========================
@@ -70,6 +83,7 @@ dados_correlacao: List[Correlacao] = []
 dados_desvios: List[Desvio] = []
 dados_regressao: List[Regressao] = []
 dados_media_movel: List[MediaMovel] = []
+dados_historico: List[Historico] = []
 
 # ==========================
 # ENDPOINTS PARA DASHBOARD
@@ -140,3 +154,13 @@ def post_media_movel(novos: List[MediaMovel]):
     global dados_media_movel
     dados_media_movel = novos
     return {"message": "Média móvel atualizada"}
+
+@app.get("/historico", response_model=List[Historico])
+def get_historico():
+    return dados_historico
+
+@app.post("/historico")
+def post_historico(novos: List[Historico]):
+    global dados_historico
+    dados_historico = novos
+    return {"message": "Dados históricos atualizados"}

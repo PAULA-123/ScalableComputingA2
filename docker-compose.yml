@@ -142,10 +142,18 @@ services:
       context: ./tratador_merge
     environment:
       - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
-      - SPARK_DRIVER_MEMORY=1g
+      - SPARK_DRIVER_MEMORY=2g
+      - SPARK_EXECUTOR_MEMORY=2g
       - GROUP_ID=tratador_merge_group
+      - TOPIC_HOSPITAL=filtered_hospital
+      - TOPIC_SECRETARY=filtered_secretary
+      - TOPIC_HIST_HOSPITAL=raw_hospital_h
+      - TOPIC_HIST_SECRETARY=raw_secretary_h
+      - TOPIC_SAIDA=merge_hospital_secretary
       - API_URL=http://api:8000/merge-cep
+      - HISTORIC_API_URL=http://api:8000/historico
       - OUTPUT_FILE=/app/databases_mock/merge_batch.json
+      - HISTORIC_FILE=/app/databases_mock/historico_agregado.json
       - DEBUG=true
       - PYTHONUNBUFFERED=1
     depends_on:
@@ -157,7 +165,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 2G
+          memory: 4G
     healthcheck:
       test: ["CMD", "pgrep", "-f", "tratador_merge.py"]
       interval: 30s
