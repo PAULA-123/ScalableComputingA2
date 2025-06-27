@@ -1,3 +1,4 @@
+import os
 import streamlit as st
 import pandas as pd
 import requests
@@ -12,7 +13,9 @@ st.set_page_config(
 
 st.title("Dashboard de Métricas de Saúde Pública")
 
-base_api = st.sidebar.text_input("API Base", value="http://api:8000")
+default_api_url = os.getenv("API_URL", "http://api:8000")
+base_api = st.sidebar.text_input("API Base", value=default_api_url)
+
 
 endpoints = {
     "/merge-cep": "/merge-cep",
