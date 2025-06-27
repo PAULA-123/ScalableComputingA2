@@ -193,6 +193,28 @@ services:
       timeout: 10s
       retries: 3
 
+  tratador-media-movel:
+    build:
+      context: ./tratador_media_movel
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - SOURCE_TOPIC=filtered_secretary
+      - OUTPUT_FILE=/app/databases_mock/media_movel.json
+      - SPARK_DRIVER_MEMORY=2g
+      - SPARK_EXECUTOR_MEMORY=2g
+      - GROUP_ID=tratador_media_movel_group
+      - API_URL=http://api:8000/media-movel
+    depends_on:
+      tratador-filtragem:
+        condition: service_started
+      kafka:
+        condition: service_healthy
+    volumes:
+      - ./databases_mock:/app/databases_mock:z
+      - ./logs/media_movel:/app/logs
+    restart: unless-stopped
+
+
   api:
     build:
       context: ./api
