@@ -1,149 +1,177 @@
 import json
-import time
+import requests
 import os
+from datetime import datetime
 from confluent_kafka import Consumer, KafkaError
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import col, mean, when
-from pyspark.sql.window import Window
-import requests
+from pyspark.sql.types import StructType, StructField, FloatType, IntegerType, StringType
 
-# Configurações com fallback
-KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092")
-GROUP_ID = os.getenv("GROUP_ID", "tratador_alerta_group")
-SOURCE_TOPIC = os.getenv("SOURCE_TOPIC", "filtered_oms")
-OUTPUT_DIR = "/app/databases_mock"
-OUTPUT_FILE = os.path.join(OUTPUT_DIR, "alerta_batch.json")
-API_URL = "http://api:8000/alerta-obitos"
+# Configurações de conexão Kafka e API
+KAFKA_BOOTSTRAP_SERVERS = "kafka:9092"
+GROUP_ID = "tratador_correlacao_group"
+SOURCE_TOPICS = ["grouped_secretary", "merge_hospital_secretary"]
+API_URL = "http://api:8000/correlacao"
 
-# Schema com tipos explícitos
-schema = {
-    "N_obitos": "integer",
-    "Populacao": "integer",
-    "CEP": "integer",
-    "N_recuperados": "integer",
-    "N_vacinados": "integer",
-    "Data": "string"
-}
+# Esquema dos dados esperados no batch agrupado
+schema = StructType([
+    StructField("CEP", IntegerType(), True),
+    StructField("total_diagnosticos", IntegerType(), True),
+    StructField("media_escolaridade", FloatType(), True),
+    StructField("total_vacinados", IntegerType(), True),
+    StructField("populacao", IntegerType(), True)
+])
 
-def setup_spark():
-    return SparkSession.builder \
-        .appName("TratadorAlerta") \
-        .config("spark.sql.shuffle.partitions", "2") \
-        .getOrCreate()
+def salvar_resultado_em_json(payload, output_path="/app/databases_mock/correlacao.json"):
+    try:
+        # Garante que o diretório existe
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        
+        # Se o arquivo já existe, carrega o conteúdo atual
+        if os.path.exists(output_path):
+            try:
+                with open(output_path, "r", encoding="utf-8") as f:
+                    existing_data = json.load(f)
+                # Verifica se é uma lista para poder fazer extend
+                if isinstance(existing_data, list):
+                    existing_data.extend(payload)
+                    payload = existing_data
+                else:
+                    # Se não for lista, cria uma nova lista com os dados existentes e os novos
+                    payload = [existing_data] + payload
+            except json.JSONDecodeError:
+                # Se o arquivo estiver corrompido, começa do zero
+                payload = payload
+        else:
+            # Se o arquivo não existe, payload permanece como está
+            pass
 
-def process_batch(batch, spark):
-    df = spark.createDataFrame(batch)
-    
-    if df.isEmpty():
-        print("[AVISO] DataFrame vazio recebido")
-        return None
+        # Escreve os dados no arquivo
+        with open(output_path, "w", encoding="utf-8") as f:
+            json.dump(payload, f, indent=4, ensure_ascii=False)
+        
+        print(f"Resultado salvo com sucesso em {output_path}")
+        return True
+    except Exception as e:
+        print(f"Erro ao salvar resultado em JSON: {str(e)}")
+        return False
 
-    media_obitos = df.select(mean(col("N_obitos"))).collect()[0][0] or 0
+def calcular_e_enviar(df):
+    try:
+        # Verifica se os desvios padrões são diferentes de zero
+        stats = df.selectExpr(
+            "stddev(Media_Escolaridade) as std_esc",
+            "stddev(Total_Vacinados) as std_vac"
+        ).collect()[0]
 
-    return df.withColumn("Alerta",
-               when(col("N_obitos") > media_obitos, "Vermelho").otherwise("Verde"))
+        std_esc = stats['std_esc']
+        std_vac = stats['std_vac']
+
+        if std_esc == 0 or std_vac == 0 or std_esc is None or std_vac is None:
+            print(f"Impossível calcular correlação: desvio padrão zero ou nulo - Escolaridade={std_esc}, Vacinado={std_vac}")
+            return
+
+        # Calcula a correlação de Pearson entre escolaridade média e total de vacinados
+        esc_vac = df.stat.corr("Media_Escolaridade", "Total_Vacinados")
+        print(f"Correlação Escolaridade x Vacinado: {esc_vac:.4f}")
+
+        # Cria payload JSON para a API
+        payload = {
+            "correlacao_escolaridade_vacinacao": round(esc_vac, 4),
+            "timestamp": datetime.now().isoformat()
+        }
+        
+        # Salva localmente
+        if not salvar_resultado_em_json([payload]):
+            print("Falha ao salvar resultado localmente")
+        
+        # Envia para a API REST
+        try:
+            response = requests.post(API_URL, json=payload)
+            if response.status_code == 200:
+                print("Correlação enviada para API com sucesso")
+            else:
+                print(f"Erro ao enviar para API: {response.status_code} - {response.text}")
+        except Exception as e:
+            print(f"Erro ao fazer requisição para API: {e}")
+    except Exception as e:
+        print(f"Erro ao calcular correlação: {e}")
+
+# ... [mantém o código acima igual até a função main] ...
 
 def main():
-    print("\n=== INICIANDO TRATADOR DE ALERTA ===")
-    print(f"Conectando ao Kafka em: {KAFKA_BOOTSTRAP_SERVERS}")
-    print(f"Tópico: {SOURCE_TOPIC}")
-    print(f"Grupo: {GROUP_ID}")
-    
-    spark = setup_spark()
-    spark.sparkContext.setLogLevel("WARN")
+    print("\n[INÍCIO] Tratador de correlação iniciado")
 
-    consumer = Consumer({
+    # Inicializa sessão Spark
+    spark = SparkSession.builder \
+        .appName("tratador_correlacao_batch") \
+        .config("spark.sql.shuffle.partitions", "2") \
+        .getOrCreate()
+    spark.sparkContext.setLogLevel("ERROR")
+
+    # Inicializa consumidor Kafka
+    consumer_conf = {
         "bootstrap.servers": KAFKA_BOOTSTRAP_SERVERS,
         "group.id": GROUP_ID,
         "auto.offset.reset": "earliest",
-        "enable.auto.commit": False,
-        "max.poll.interval.ms": 300000
-    })
+        "enable.auto.commit": False
+    }
 
-    consumer.subscribe([SOURCE_TOPIC])
-    print(f"Inscrito no tópico {SOURCE_TOPIC}")
+    consumer = Consumer(consumer_conf)
+    consumer.subscribe(SOURCE_TOPICS)
+    print(f"[KAFKA] Subscrito aos tópicos: {SOURCE_TOPICS}")
 
     try:
         while True:
-            msg = consumer.poll(timeout=5.0)
+            msg = consumer.poll(timeout=1.0)
 
             if msg is None:
-                print("[DEBUG] Nenhuma mensagem recebida. Verificando tópico...")
                 continue
 
             if msg.error():
-                handle_kafka_error(msg.error())
+                if msg.error().code() != KafkaError._PARTITION_EOF:
+                    print(f"[KAFKA ERRO] {msg.error()}")
                 continue
 
-            try:
-                process_message(msg, spark)
+            print("\n[MENSAGEM] Mensagem recebida")
 
+            try:
+                raw = msg.value().decode("utf-8")
+                print(f"[DEBUG] Conteúdo bruto da mensagem: {raw[:150]}...")  # Limita para evitar poluição
+
+                conteudo = json.loads(raw)
+                dados = conteudo.get("batch", [])
+                origem = conteudo.get("source", "desconhecida")
+                print(f"[DEBUG] Origem: {origem} | Tamanho do batch: {len(dados)}")
+
+                if dados:
+                    print(f"[PROCESSAMENTO] Iniciando com {len(dados)} registros")
+
+                    # Converte para DataFrame Spark
+                    df = spark.createDataFrame(dados, schema=schema)
+                    print(f"[SPARK] Schema do DataFrame:")
+                    df.printSchema()
+
+                    calcular_e_enviar(df)
+
+                    # Commit manual do offset
+                    consumer.commit(asynchronous=False)
+                    print("[KAFKA] Offset commitado com sucesso")
+
+                else:
+                    print("[AVISO] Nenhum dado no batch")
+
+            except json.JSONDecodeError as e:
+                print(f"[ERRO JSON] Falha ao decodificar: {e}")
             except Exception as e:
-                print(f"[ERRO] Processamento falhou: {str(e)}")
-                import traceback
-                traceback.print_exc()
+                print(f"[ERRO PROCESSAMENTO] {e}")
 
     except KeyboardInterrupt:
-        print("\n=== ENCERRANDO ===")
+        print("\n[PARADA] Interrompido pelo usuário")
     finally:
+        print("[ENCERRAMENTO] Fechando consumidor e SparkSession")
         consumer.close()
         spark.stop()
-        print("Recursos liberados")
 
-def process_message(msg, spark):
-    payload = json.loads(msg.value().decode('utf-8'))
-    print(f"[DEBUG] Mensagem recebida: {payload.keys()}")
-
-    if "batch" not in payload:
-        print("[AVISO] Mensagem sem campo 'batch'")
-        return
-
-    batch = payload["batch"]
-    print(f"[PROCESSAMENTO] Batch com {len(batch)} registros")
-
-    df_processed = process_batch(batch, spark)
-    if df_processed is None:
-        return
-
-    resultado = [row.asDict() for row in df_processed.collect()]
-
-    # Salvar sem sobrescrever
-    try:
-        os.makedirs(OUTPUT_DIR, exist_ok=True)
-
-        if os.path.exists(OUTPUT_FILE):
-            with open(OUTPUT_FILE, "r", encoding="utf-8") as f:
-                conteudo_antigo = json.load(f)
-                if not isinstance(conteudo_antigo, list):
-                    print("[ERRO] Conteúdo antigo não é uma lista JSON. Sobrescrevendo.")
-                    conteudo_antigo = []
-        else:
-            conteudo_antigo = []
-
-        conteudo_antigo.extend(resultado)
-
-        with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
-            json.dump(conteudo_antigo, f, indent=4, ensure_ascii=False)
-
-        print(f"[ARQUIVO] Batch salvo com sucesso ({len(resultado)} registros)")
-
-    except Exception as e:
-        print(f"[ERRO ARQUIVO] Falha ao salvar JSON: {str(e)}")
-        import traceback
-        traceback.print_exc()
-
-    # Enviar para API
-    try:
-        response = requests.post(API_URL, json=resultado, timeout=5)
-        response.raise_for_status()
-        print(f"[API] Dados enviados. Status: {response.status_code}")
-    except Exception as e:
-        print(f"[ERRO API] {str(e)}")
-
-def handle_kafka_error(error):
-    if error.code() == KafkaError._PARTITION_EOF:
-        return
-    print(f"[ERRO KAFKA] {error.str()}")
 
 if __name__ == "__main__":
     main()

@@ -78,13 +78,16 @@ def salvar_resultado(dados):
     try:
         os.makedirs(OUTPUT_DIR, exist_ok=True)
 
+        anterior = []
         if os.path.exists(OUTPUT_FILE):
             with open(OUTPUT_FILE, "r", encoding="utf-8") as f:
-                anterior = json.load(f)
-                if not isinstance(anterior, list):
+                try:
+                    anterior = json.load(f)
+                    if not isinstance(anterior, list):
+                        anterior = []
+                except json.JSONDecodeError as e:
+                    print(f"[ERRO ARQUIVO] JSON inválido, sobrescrevendo: {e}")
                     anterior = []
-        else:
-            anterior = []
 
         anterior.extend(dados)
 

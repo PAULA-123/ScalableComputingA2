@@ -103,10 +103,43 @@ def process_batch(msg, spark, producer):
         
         if data_type == 'secretary':
             df_filtrado = filter_secretary(df)
+
+            # Prepara e envia o batch filtrado
+            batch_filtrado = [row.asDict() for row in df_filtrado.collect()]
+        
+            if batch_filtrado:
+                producer.produce(config['out'],json.dumps({"batch": batch_filtrado, "source": "secretary", "type": "normal"}).encode('utf-8'))
+                print(f"[{data_type.upper()}] Batch filtrado enviado - {len(batch_filtrado)} registros")
+                return len(batch_filtrado)
+        
+            print(f"[{data_type.upper()}] Batch vazio após filtragem")
+            return 0
+        
         elif data_type == 'hospital':
             df_filtrado = filter_hospital(df)
+
+             # Prepara e envia o batch filtrado
+            batch_filtrado = [row.asDict() for row in df_filtrado.collect()]
+        
+            if batch_filtrado:
+                producer.produce(config['out'],json.dumps({"batch": batch_filtrado, "source": "hospital", "type": "normal"}).encode('utf-8'))
+                print(f"[{data_type.upper()}] Batch filtrado enviado - {len(batch_filtrado)} registros")
+                return len(batch_filtrado)
+        
+            print(f"[{data_type.upper()}] Batch vazio após filtragem")
+            return 0
         elif data_type == 'oms':
             df_filtrado = filter_oms(df)
+             # Prepara e envia o batch filtrado
+            batch_filtrado = [row.asDict() for row in df_filtrado.collect()]
+        
+            if batch_filtrado:
+                producer.produce(config['out'],json.dumps({"batch": batch_filtrado, "source": "secretary", "type": "normal"}).encode('utf-8'))
+                print(f"[{data_type.upper()}] Batch filtrado enviado - {len(batch_filtrado)} registros")
+                return len(batch_filtrado)
+        
+            print(f"[{data_type.upper()}] Batch vazio após filtragem")
+            return 0
 
         # Prepara e envia o batch filtrado
         batch_filtrado = [row.asDict() for row in df_filtrado.collect()]
