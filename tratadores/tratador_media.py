@@ -13,7 +13,7 @@ GROUP_ID = os.getenv("GROUP_ID", "tratador_alerta_group")
 SOURCE_TOPIC = os.getenv("SOURCE_TOPIC", "filtered_oms")
 OUTPUT_DIR = "/app/databases_mock"
 OUTPUT_FILE = os.path.join(OUTPUT_DIR, "alerta_batch.json")
-API_URL = "http://api:8000/alerta-obitos"
+API_URL = os.getenv("API_URL", "http://api:8000/alerta-obitos")
 
 # Schema com tipos explícitos
 schema = {

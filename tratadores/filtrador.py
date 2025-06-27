@@ -1,3 +1,4 @@
+import os
 import json
 import time
 from confluent_kafka import Consumer, Producer, KafkaError
@@ -5,9 +6,8 @@ from pyspark.sql import SparkSession
 from pyspark.sql.functions import col
 from pyspark.sql.types import StructType, StructField, IntegerType, StringType
 
-# Configurações Kafka
-KAFKA_BOOTSTRAP_SERVERS = "kafka:9092"
-GROUP_ID = "filtrador_group"
+KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092")
+GROUP_ID = os.getenv("GROUP_ID", "filtrador_group")
 
 # Tópicos de entrada (clean) e saída (filtered)
 TOPICS_CONFIG = {

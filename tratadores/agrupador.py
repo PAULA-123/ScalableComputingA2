@@ -5,19 +5,16 @@ from pyspark.sql import SparkSession
 from pyspark.sql.functions import avg, first, sum as _sum
 from pyspark.sql.types import StructType, StructField, IntegerType, StringType
 
-# Configurações Kafka
-KAFKA_BOOTSTRAP_SERVERS = "kafka:9092"
-GROUP_ID = "tratador_agrupamento_2fontes"
+KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092")
+GROUP_ID = os.getenv("GROUP_ID", "tratador_agrupamento_2fontes")
 
-# Tópicos de entrada
-TOPIC_SECRETARY_H = "hist_secretary"
-TOPIC_HOSPITAL_H = "hist_hospital"
-TOPIC_SECRETARY = "filtered_secretary"
-TOPIC_HOSPITAL = "filtered_hospital"
+TOPIC_SECRETARY_H = os.getenv("TOPIC_SECRETARY_H", "hist_secretary")
+TOPIC_HOSPITAL_H = os.getenv("TOPIC_HOSPITAL_H", "hist_hospital")
+TOPIC_SECRETARY = os.getenv("TOPIC_SECRETARY", "filtered_secretary")
+TOPIC_HOSPITAL = os.getenv("TOPIC_HOSPITAL", "filtered_hospital")
 
-# Tópicos de saída (Kafka)
-DEST_TOPIC_SECRETARY = "grouped_secretary"
-DEST_TOPIC_HOSPITAL = "grouped_hospital"
+DEST_TOPIC_SECRETARY = os.getenv("DEST_TOPIC_SECRETARY", "grouped_secretary")
+DEST_TOPIC_HOSPITAL = os.getenv("DEST_TOPIC_HOSPITAL", "grouped_hospital")
 
 # Schemas esperados
 schema_secretary = StructType([

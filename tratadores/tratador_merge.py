@@ -20,8 +20,8 @@ from pyspark.sql.types import StructType, StructField, IntegerType, StringType
 import requests
 
 # Configuração
-KAFKA_BOOTSTRAP_SERVERS = "kafka:9092"
-GROUP_ID = "tratador_merge_group"
+KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092")
+GROUP_ID = os.getenv("GROUP_ID", "tratador_merge_group")
 
 # Tópicos para dados em tempo real
 TOPIC_HOSPITAL = "filtered_hospital"
@@ -34,8 +34,7 @@ TOPIC_SAIDA = "merge_hospital_secretary"
 
 OUTPUT_DIR = "/app/databases_mock"
 OUTPUT_FILE = os.path.join(OUTPUT_DIR, "merge_batch.json")
-API_URL = "http://api:8000/merge-cep"
-
+API_URL = os.getenv("API_URL", "http://api:8000/merge-cep")
 
 spark = SparkSession.builder.appName("TratadorMerge").getOrCreate()
 spark.sparkContext.setLogLevel("ERROR")
