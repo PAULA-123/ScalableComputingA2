@@ -141,90 +141,132 @@ def main_dashboard():
                 # ============================
                 # ALERTA DE ÓBITOS
                 # ============================
-                df_obitos = carregar_dados("/alerta-obitos")
-                if not df_obitos.empty:
-                    st.header("Monitoramento de Óbitos (Tempo Real)")
+                # df_obitos = carregar_dados("/alerta-obitos")
+                # if not df_obitos.empty:
+                #     st.header("Monitoramento de Óbitos (Tempo Real)")
                     
-                    df_obitos['Data'] = pd.to_datetime(df_obitos['Data'])
-                    df_obitos = df_obitos.sort_values('Data')
-                    media_obitos = df_obitos['N_obitos'].mean()
-                    df_obitos['Media_Movel'] = df_obitos['N_obitos'].rolling(7).mean()
+                #     df_obitos['Data'] = pd.to_datetime(df_obitos['Data'])
+                #     df_obitos = df_obitos.sort_values('Data')
+                #     media_obitos = df_obitos['N_obitos'].mean()
+                #     df_obitos['Media_Movel'] = df_obitos['N_obitos'].rolling(7).mean()
                     
-                    col1, col2 = st.columns([1, 2])
-                    with col1:
-                        st.metric("Média Histórica", f"{media_obitos:.1f}")
-                        st.metric("Total Óbitos", f"{df_obitos['N_obitos'].sum():,}")
+                #     col1, col2 = st.columns([1, 2])
+                #     with col1:
+                #         st.metric("Média Histórica", f"{media_obitos:.1f}")
+                #         st.metric("Total Óbitos", f"{df_obitos['N_obitos'].sum():,}")
                         
-                        ult = df_obitos.iloc[-1]
-                        delta = ult['N_obitos'] - media_obitos
-                        st.metric("Último Registro", f"{ult['N_obitos']}", 
-                                 delta=f"{delta:.1f}",
-                                 delta_color="inverse" if delta > 0 else "normal")
+                #         ult = df_obitos.iloc[-1]
+                #         delta = ult['N_obitos'] - media_obitos
+                #         st.metric("Último Registro", f"{ult['N_obitos']}", 
+                #                  delta=f"{delta:.1f}",
+                #                  delta_color="inverse" if delta > 0 else "normal")
                         
-                        if ult['N_obitos'] > media_obitos:
-                            st.error("⚠️ Alerta: Óbitos acima da média")
-                        else:
-                            st.success("✅ Situação Normal")
+                #         if ult['N_obitos'] > media_obitos:
+                #             st.error("⚠️ Alerta: Óbitos acima da média")
+                #         else:
+                #             st.success("✅ Situação Normal")
 
-                    with col2:
-                        fig, ax = plt.subplots(figsize=(12, 6))
-                        ax.plot(df_obitos['Data'], df_obitos['N_obitos'], 
-                                label="Óbitos Diários", marker='o')
-                        ax.plot(df_obitos['Data'], df_obitos['Media_Movel'], 
-                                label="Média Móvel (7d)", linestyle="--")
-                        ax.axhline(media_obitos, color='r', linestyle=':', 
-                                  label="Média Histórica")
-                        ax.legend()
-                        ax.set_title("Evolução de Óbitos (Tempo Real)")
-                        ax.set_xlabel("Data")
-                        ax.set_ylabel("Óbitos")
-                        st.pyplot(fig)
+                #     with col2:
+                #         fig, ax = plt.subplots(figsize=(12, 6))
+                #         ax.plot(df_obitos['Data'], df_obitos['N_obitos'], 
+                #                 label="Óbitos Diários", marker='o')
+                #         ax.plot(df_obitos['Data'], df_obitos['Media_Movel'], 
+                #                 label="Média Móvel (7d)", linestyle="--")
+                #         ax.axhline(media_obitos, color='r', linestyle=':', 
+                #                   label="Média Histórica")
+                #         ax.legend()
+                #         ax.set_title("Evolução de Óbitos (Tempo Real)")
+                #         ax.set_xlabel("Data")
+                #         ax.set_ylabel("Óbitos")
+                #         st.pyplot(fig)
 
                 # ============================
                 # CORRELAÇÃO
                 # ============================
-                df_corr = carregar_dados("/correlacao")
-                if not df_corr.empty:
-                    st.header("Correlação Escolaridade x Vacinação")
-                    valor = df_corr.iloc[-1]['Escolaridade']
+                # df_corr = carregar_dados("/correlacao")
+                # if not df_corr.empty:
+                #     st.header("Correlação Escolaridade x Vacinação")
+                #     valor = df_corr.iloc[-1]['Escolaridade']
                     
-                    col1, col2, col3 = st.columns([1,2,1])
-                    with col2:
-                        st.metric("Correlação de Pearson", f"{valor:.4f}",
-                                help="Entre escolaridade média e vacinação por CEP")
+                #     col1, col2, col3 = st.columns([1,2,1])
+                #     with col2:
+                #         st.metric("Correlação de Pearson", f"{valor:.4f}",
+                #                 help="Entre escolaridade média e vacinação por CEP")
                     
-                    if abs(valor) > 0.7:
-                        st.success("Correlação forte detectada")
-                    elif abs(valor) > 0.4:
-                        st.info("Correlação moderada")
-                    else:
-                        st.warning("Correlação fraca")
+                #     if abs(valor) > 0.7:
+                #         st.success("Correlação forte detectada")
+                #     elif abs(valor) > 0.4:
+                #         st.info("Correlação moderada")
+                #     else:
+                #         st.warning("Correlação fraca")
 
                 # ============================
                 # DESVIOS PADRÃO
                 # ============================
-                df_desvios = carregar_dados("/desvios")
-                if not df_desvios.empty:
-                    st.header("Desvios Padrão das Variáveis")
-                    st.bar_chart(data=df_desvios.set_index("variavel")["desvio"])
+                # df_desvios = carregar_dados("/desvios")
+                # if not df_desvios.empty:
+                #     st.header("Desvios Padrão das Variáveis")
+                #     st.bar_chart(data=df_desvios.set_index("variavel")["desvio"])
+                              
+                # ============================
+                # REGRESSÃO LINEAR
+                # ============================                
+                df_reg = carregar_dados("/regressao")
+                df_merge_reg = carregar_dados("/merge-cep")
+
+                if not df_reg.empty and not df_merge_reg.empty:
+                    st.header("Regressão Linear - Escolaridade vs Vacinação")
+                    
+                    st.subheader("Coeficientes Estimados")
+                    st.dataframe(df_reg)
+
+                    ultima = df_reg.iloc[-1]
+                    beta0, beta1 = ultima["beta0"], ultima["beta1"]
+
+                    st.metric("Intercepto (β₀)", f"{beta0:.4f}")
+                    st.metric("Inclinação (β₁)", f"{beta1:.4f}")
+
+                    st.markdown(f"""
+                    **Equação estimada:**  
+                    `Total_Vacinados = {beta0:.4f} + {beta1:.4f} * Media_Escolaridade`
+                    """)
+
+                    st.subheader("Visualização da Regressão Linear")
+
+                    df_plot = df_merge_reg[["Media_Escolaridade", "Total_Vacinados"]].dropna()
+                    df_plot = df_plot.sort_values("Media_Escolaridade")
+
+                    # Geração dos pontos da reta estimada
+                    x_vals = df_plot["Media_Escolaridade"]
+                    y_vals = beta0 + beta1 * x_vals
+
+                    fig, ax = plt.subplots(figsize=(10, 6))
+                    ax.scatter(df_plot["Media_Escolaridade"], df_plot["Total_Vacinados"], color="blue", alpha=0.6, label="Observações")
+                    ax.plot(x_vals, y_vals, color="red", linewidth=2, label="Reta Estimada")
+
+                    ax.set_xlabel("Média de Escolaridade")
+                    ax.set_ylabel("Total de Vacinados")
+                    ax.set_title("Regressão Linear: Vacinados vs Escolaridade")
+                    ax.legend()
+                    st.pyplot(fig)
                 
                 # ============================
                 # MÉDIA MÓVEL
                 # ============================
-                df_media = carregar_dados("/media-movel")
-                if not df_media.empty:
-                    st.header("Tendência de Óbitos (Média Móvel)")
-                    df_media['Data'] = pd.to_datetime(df_media['Data'])
-                    df_media = df_media.sort_values('Data')
+                # df_media = carregar_dados("/media-movel")
+                # if not df_media.empty:
+                #     st.header("Tendência de Óbitos (Média Móvel)")
+                #     df_media['Data'] = pd.to_datetime(df_media['Data'])
+                #     df_media = df_media.sort_values('Data')
                     
-                    fig, ax = plt.subplots(figsize=(10, 4))
-                    ax.plot(df_media['Data'], df_media['media_movel'], 
-                            label='Média Móvel 7 dias', color='purple')
-                    ax.set_xlabel('Data')
-                    ax.set_ylabel('Óbitos')
-                    ax.set_title('Tendência de Óbitos (Suavizada)')
-                    ax.legend()
-                    st.pyplot(fig)
+                #     fig, ax = plt.subplots(figsize=(10, 4))
+                #     ax.plot(df_media['Data'], df_media['media_movel'], 
+                #             label='Média Móvel 7 dias', color='purple')
+                #     ax.set_xlabel('Data')
+                #     ax.set_ylabel('Óbitos')
+                #     ax.set_title('Tendência de Óbitos (Suavizada)')
+                #     ax.legend()
+                #     st.pyplot(fig)
 
         if auto_refresh:
             time.sleep(refresh_interval)

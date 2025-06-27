@@ -52,9 +52,9 @@ class Desvio(BaseModel):
     desvio: float
 
 class Regressao(BaseModel):
-    variavel: str
-    alfa: float
-    beta: float
+    quantidade: int
+    beta0: float
+    beta1: float
 
 class MediaMovel(BaseModel):
     Data: str

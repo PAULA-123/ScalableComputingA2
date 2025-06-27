@@ -214,6 +214,25 @@ services:
         limits:
           memory: 2G
 
+  tratador-regressao:
+    build:
+      context: ./tratador_regressao
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - GROUP_ID=tratador_regressao_group
+      - API_URL=http://api:8000/regressao
+      - OUTPUT_FILE=/app/databases_mock/regressao.json
+      - PYTHONUNBUFFERED=1
+    depends_on:
+      - kafka
+      - tratador-merge
+    volumes:
+      - ./databases_mock:/app/databases_mock:z
+      - ./logs/regressao:/app/logs
+    deploy:
+      resources:
+        limits:
+          memory: 2G
 
   api:
     build:
