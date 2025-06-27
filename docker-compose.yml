@@ -37,170 +37,112 @@ services:
       timeout: 5s
       retries: 10
 
-  redis:
-    image: redis:7
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 1s
-      retries: 3
-
   mock-generator:
     build:
       context: ./mock_data
+    command: ["sh", "-c", "sleep 5 && python generator.py"]
     environment:
-      - REDIS_HOST=redis
-      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - KAFKA_BOOTSTRAP_SERVERS=${KAFKA_SERVERS}
     depends_on:
-      redis:
-        condition: service_healthy
       kafka:
         condition: service_healthy
+    restart: unless-stopped
+    # volumes:
+    #   - resultados:/app/databases_mock
+    # deploy:
+    #   resources:
+    #     limits:
+    #       cpus: '0.5'
+    #       memory: 512M
+    #     reservations:
+    #       cpus: '0.25'
+    #       memory: 256M
 
-  tratador-limpeza:
-    build:
-      context: ./tratador_limpeza
-    environment:
-      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
-      - SPARK_DRIVER_MEMORY=2g
-      - SPARK_EXECUTOR_MEMORY=2g
-    depends_on:
-      - kafka
-      - mock-generator
-    volumes:
-      - ./artifacts:/app/artifacts
-      - ./logs/cleaner:/app/logs
-    deploy:
-      resources:
-        limits:
-          memory: 4G
 
-  tratador-filtragem:
+  tratador1_limpeza:
     build:
-      context: ./tratador_filtragem
+      context: ./tratadores
+    command: cleaner.py
     environment:
       - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
-      - SPARK_DRIVER_MEMORY=2g
-      - SPARK_EXECUTOR_MEMORY=2g
     depends_on:
-      - kafka
-      - tratador-limpeza
-    volumes:
-      - ./logs/filtrador:/app/logs
-    deploy:
-      resources:
-        limits:
-          memory: 4G
-        
-  tratador-agrupamento:
-    build:
-      context: ./tratador_agrupamento
-    environment:
-      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
-      - SPARK_DRIVER_MEMORY=2g
-      - SPARK_EXECUTOR_MEMORY=2g
-      - GROUP_ID=tratador_agrupamento_2fontes
-    depends_on:
-      - kafka
-      - tratador-filtragem
-    volumes:
-      - ./logs/agrupamento:/app/logs
-    deploy:
-      resources:
-        limits:
-          memory: 4G
+      kafka:
+        condition: service_healthy
+    # deploy:
+    #   resources:
+    #     limits:
+    #       cpus: '0.5'
+    #       memory: 512M
+    #     reservations:
+    #       cpus: '0.25'
+    #       memory: 256M  
 
-  tratador-correlacao:
-    build:
-      context: ./tratador_correlacao
-    environment:
-      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
-      - SPARK_DRIVER_MEMORY=1g
-      - GROUP_ID=tratador_correlacao_group
-      - API_URL=http://api:8000/correlacao
-      - OUTPUT_FILE=/app/databases_mock/correlacao.json
-      - DEBUG=true
-      - PYTHONUNBUFFERED=1
-    depends_on:
-      - kafka
-      - tratador-agrupamento
-      - tratador-merge
-    volumes:
-      - ./databases_mock:/app/databases_mock:z
-      - ./logs/correlacao:/app/logs
-    deploy:
-      resources:
-        limits:
-          memory: 4G
 
-  tratador-merge:
+  tratador2_filtragem:
     build:
-      context: ./tratador_merge
+      context: ./tratadores
+    command: filtrador.py
     environment:
       - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
-      - SPARK_DRIVER_MEMORY=1g
-      - GROUP_ID=tratador_merge_group
-      - API_URL=http://api:8000/merge-cep
-      - OUTPUT_FILE=/app/databases_mock/merge_batch.json
-      - DEBUG=true
-      - PYTHONUNBUFFERED=1
     depends_on:
-      - kafka
-      - tratador-filtragem
-    volumes:
-      - ./databases_mock:/app/databases_mock:z
-      - ./logs/merge:/app/logs
-    deploy:
-      resources:
-        limits:
-          memory: 2G
-    healthcheck:
-      test: ["CMD", "pgrep", "-f", "tratador_merge.py"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+      kafka:
+        condition: service_healthy
+    # deploy:
+    #   resources:
+    #     limits:
+    #       cpus: '0.5'
+    #       memory: 512M
+    #     reservations:
+    #       cpus: '0.25'
+    #       memory: 256M  
 
-  tratador-media:
+
+  # tratador3_merge:
+  #   build:
+  #     context: ./tratadores
+  #   command: tratador_merge.py
+  #   environment:
+  #     - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+  #   depends_on:
+  #     kafka:
+  #       condition: service_healthy
+  #   # deploy:
+  #   #   resources:
+  #   #     limits:
+  #   #       cpus: '0.5'
+  #   #       memory: 512M
+  #   #     reservations:
+  #   #       cpus: '0.25'
+  #   #       memory: 256M  
+
+      
+  tratador5_media:
     build:
-      context: ./tratador_media
+      context: ./tratadores
+    command: tratador_media.py
     environment:
-      - SOURCE_TOPIC=filtered_oms
       - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
-      - SPARK_DRIVER_MEMORY=2g
-      - SPARK_EXECUTOR_MEMORY=2g
-      - GROUP_ID=tratador_alerta_group
-      - API_URL=http://api:8000/alerta-obitos
-      - OUTPUT_FILE=/app/databases_mock/alerta_batch.json
-      - DEBUG=true
-      - PYTHONUNBUFFERED=1
     depends_on:
-      - kafka
-      - tratador-filtragem
-    volumes:
-      - ./databases_mock:/app/databases_mock:z
-      - ./logs/media:/app/logs
-    deploy:
-      resources:
-        limits:
-          memory: 2G
-    healthcheck:
-      test: ["CMD", "pgrep", "-f", "tratador_media.py"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+      kafka:
+        condition: service_healthy
+    # deploy:
+    #   resources:
+    #     limits:
+    #       cpus: '0.5'
+    #       memory: 512M
+    #     reservations:
+    #       cpus: '0.25'
+    #       memory: 256M  
+    
 
   api:
     build:
       context: ./api
     ports:
       - "8000:8000"
-    depends_on:
-      - tratador-merge
-      - tratador-media
+    # depends_on:
+    #   - tratador-merge
+    #   - tratador-media
     command: ["uvicorn", "api:app", "--host", "0.0.0.0", "--port", "8000"]
 
   dashboard:
@@ -215,4 +157,3 @@ services:
 volumes:
   zookeeper_data:
   kafka_data:
-  redis_data:
