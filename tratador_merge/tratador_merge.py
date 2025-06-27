@@ -129,9 +129,9 @@ def processar_batch(dados_hosp, dados_secr):
 
     # Agrega informações hospitalares por CEP
     agg_hosp = df_hosp.groupBy("CEP").agg(
-        spark_sum("Internado").alias("Total_Internados"),
-        avg("Idade").alias("Media_Idade"),
-        spark_sum("Sintoma1").alias("Total_Sintoma1"),
+        spark_sum("Internado").alias("total_Internados"),
+        avg("Idade").alias("media_idade"),
+        spark_sum("Sintoma1").alias("total_Sintoma1"),
         spark_sum("Sintoma2").alias("Total_Sintoma2"),
         spark_sum("Sintoma3").alias("Total_Sintoma3"),
         spark_sum("Sintoma4").alias("Total_Sintoma4")
@@ -139,10 +139,10 @@ def processar_batch(dados_hosp, dados_secr):
 
     # Agrega informações da secretaria por CEP
     agg_secr = df_secr.groupBy("CEP").agg(
-        spark_sum("Diagnostico").alias("Total_Diagnosticos"),
-        spark_sum("Vacinado").alias("Total_Vacinados"),
-        avg("Escolaridade").alias("Media_Escolaridade"),
-        first("Populacao").alias("Populacao")
+        spark_sum("Diagnostico").alias("total_diagnosticos"),
+        spark_sum("Vacinado").alias("total_vacinados"),
+        avg("Escolaridade").alias("media_escolaridade"),
+        first("Populacao").alias("populacao")
     )
 
     merged = agg_hosp.join(agg_secr, on="CEP", how="outer").fillna(0)

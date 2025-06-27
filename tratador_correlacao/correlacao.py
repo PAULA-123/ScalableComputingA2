@@ -1,7 +1,7 @@
 import json
 import requests
 import os
-import pandas as pd
+from datetime import datetime
 from confluent_kafka import Consumer, KafkaError
 from pyspark.sql import SparkSession
 from pyspark.sql.types import StructType, StructField, FloatType, IntegerType, StringType
@@ -15,10 +15,10 @@ API_URL = "http://api:8000/correlacao"
 # Esquema dos dados esperados no batch agrupado
 schema = StructType([
     StructField("CEP", IntegerType(), True),
-    StructField("Total_Diagnosticos", IntegerType(), True),
-    StructField("Media_Escolaridade", FloatType(), True),
-    StructField("Total_Vacinados", IntegerType(), True),
-    StructField("Populacao", IntegerType(), True)
+    StructField("total_diagnosticos", IntegerType(), True),
+    StructField("media_escolaridade", FloatType(), True),
+    StructField("total_vacinados", IntegerType(), True),
+    StructField("populacao", IntegerType(), True)
 ])
 
 def salvar_resultado_em_json(payload, output_path="/app/databases_mock/correlacao.json"):
@@ -77,7 +77,7 @@ def calcular_e_enviar(df):
         # Cria payload JSON para a API
         payload = {
             "correlacao_escolaridade_vacinacao": round(esc_vac, 4),
-            "timestamp": pd.Timestamp.now().isoformat()
+            "timestamp": datetime.now().isoformat()
         }
         
         # Salva localmente
@@ -96,7 +96,11 @@ def calcular_e_enviar(df):
     except Exception as e:
         print(f"Erro ao calcular correlação: {e}")
 
+# ... [mantém o código acima igual até a função main] ...
+
 def main():
+    print("\n[INÍCIO] Tratador de correlação iniciado")
+
     # Inicializa sessão Spark
     spark = SparkSession.builder \
         .appName("tratador_correlacao_batch") \
@@ -111,50 +115,63 @@ def main():
         "auto.offset.reset": "earliest",
         "enable.auto.commit": False
     }
-    
+
     consumer = Consumer(consumer_conf)
     consumer.subscribe(SOURCE_TOPICS)
+    print(f"[KAFKA] Subscrito aos tópicos: {SOURCE_TOPICS}")
 
     try:
         while True:
             msg = consumer.poll(timeout=1.0)
+
             if msg is None:
                 continue
+
             if msg.error():
                 if msg.error().code() != KafkaError._PARTITION_EOF:
-                    print(f"Kafka error: {msg.error()}")
+                    print(f"[KAFKA ERRO] {msg.error()}")
                 continue
 
+            print("\n[MENSAGEM] Mensagem recebida")
+
             try:
-                conteudo = json.loads(msg.value().decode("utf-8"))
+                raw = msg.value().decode("utf-8")
+                print(f"[DEBUG] Conteúdo bruto da mensagem: {raw[:150]}...")  # Limita para evitar poluição
+
+                conteudo = json.loads(raw)
                 dados = conteudo.get("batch", [])
-                
+                origem = conteudo.get("source", "desconhecida")
+                print(f"[DEBUG] Origem: {origem} | Tamanho do batch: {len(dados)}")
+
                 if dados:
-                    print(f"Processando batch com {len(dados)} registros")
-                    
+                    print(f"[PROCESSAMENTO] Iniciando com {len(dados)} registros")
+
                     # Converte para DataFrame Spark
                     df = spark.createDataFrame(dados, schema=schema)
-                    
-                    # Mostra schema para debug
+                    print(f"[SPARK] Schema do DataFrame:")
                     df.printSchema()
-                    
-                    # Calcula e envia correlação
+
                     calcular_e_enviar(df)
-                    
+
                     # Commit manual do offset
                     consumer.commit(asynchronous=False)
-                    
+                    print("[KAFKA] Offset commitado com sucesso")
+
+                else:
+                    print("[AVISO] Nenhum dado no batch")
+
             except json.JSONDecodeError as e:
-                print(f"Erro ao decodificar JSON: {e}")
+                print(f"[ERRO JSON] Falha ao decodificar: {e}")
             except Exception as e:
-                print(f"Erro ao processar mensagem: {e}")
+                print(f"[ERRO PROCESSAMENTO] {e}")
 
     except KeyboardInterrupt:
-        print("Interrompido pelo usuário")
+        print("\n[PARADA] Interrompido pelo usuário")
     finally:
-        print("Encerrando consumidor e sessão Spark")
+        print("[ENCERRAMENTO] Fechando consumidor e SparkSession")
         consumer.close()
         spark.stop()
+
 
 if __name__ == "__main__":
     main()
